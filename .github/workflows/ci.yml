@@ -15,9 +15,9 @@ env:
   GOCACHE: ${{ github.workspace }}/.gocache
   GO111MODULE: "on"
   GOVULNCHECK_MODE: required
-  GOVULNCHECK_VERSION: v1.3.0
+  GOVULNCHECK_VERSION: v1.0.4
   GOCYCLO_VERSION: v0.6.0
-  MIN_INTERNAL_COVERAGE: "55.0"
+  MIN_INTERNAL_COVERAGE: "60.0"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

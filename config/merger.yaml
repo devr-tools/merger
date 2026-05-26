@@ -1,6 +1,7 @@
 service:
   ingest_address: ":8080"
   controlplane_address: ":8081"
+  controlplane_grpc_address: ":9091"
 
 logging:
   level: info

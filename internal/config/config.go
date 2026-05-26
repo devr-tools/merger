@@ -21,6 +21,7 @@ type Config struct {
 type ServiceConfig struct {
 	IngestAddress       string `yaml:"ingest_address"`
 	ControlPlaneAddress string `yaml:"controlplane_address"`
+	ControlPlaneGRPC    string `yaml:"controlplane_grpc_address"`
 }
 
 type LoggingConfig struct {
@@ -75,6 +76,7 @@ func Defaults() Config {
 		Service: ServiceConfig{
 			IngestAddress:       ":8080",
 			ControlPlaneAddress: ":8081",
+			ControlPlaneGRPC:    ":9091",
 		},
 		Logging: LoggingConfig{Level: "info"},
 		GitHub: GitHubConfig{

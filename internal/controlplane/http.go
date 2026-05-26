@@ -108,7 +108,8 @@ func (h *HTTPHandler) updateEvidenceExecution(w http.ResponseWriter, r *http.Req
 		DetailsURL:     request.DetailsURL,
 		UpdatedBy:      request.UpdatedBy,
 	}
-	if err := h.service.UpdateEvidenceExecution(r.Context(), execution); err != nil {
+	execution, err := h.service.UpdateEvidenceExecution(r.Context(), execution)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

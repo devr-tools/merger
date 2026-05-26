@@ -7,24 +7,27 @@ BUILD_DIR ?= .build
 TEST_PKGS := $(shell find . -type f -name '*_test.go' -not -path './.build/*' | xargs -n1 dirname | sort -u)
 GO_PACKAGES := ./...
 TEST_TREE := ./tests/...
+GO_FILES := $(shell find cmd internal pkg proto tests -type f -name '*.go' | sort)
 GOCYCLO_VERSION ?= v0.6.0
-GOVULNCHECK_VERSION ?= v1.3.0
-MIN_INTERNAL_COVERAGE ?= 55.0
+GOVULNCHECK_VERSION ?= v1.0.4
+MIN_INTERNAL_COVERAGE ?= 60.0
 BASE_REF ?= origin/main
 export GOCACHE := $(abspath $(BUILD_DIR)/go-cache)
-export GOMODCACHE := $(abspath $(BUILD_DIR)/go-mod-cache)
 
-.PHONY: fmt fmt-check test test-all vet gocyclo coverage smoke benchmark security ci build verify run-ingest run-controlplane compose-up compose-down docker-build clean
+.PHONY: fmt fmt-check test test-all vet gocyclo coverage smoke benchmark security proto ci-fast ci build verify run-ingest run-controlplane compose-up compose-down docker-build clean
 
 $(BUILD_DIR):
-	mkdir -p $(GOCACHE) $(GOMODCACHE)
+	mkdir -p $(GOCACHE)
 
 fmt: $(BUILD_DIR)
-	$(GO) fmt ./...
+	@if [ -n "$(GO_FILES)" ]; then gofmt -w $(GO_FILES); fi
 
 fmt-check: $(BUILD_DIR)
-	$(GO) fmt ./...
-	git diff --exit-code
+	@unformatted="$$(gofmt -l $(GO_FILES))"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
 
 test: $(BUILD_DIR)
 	@if [ -z "$(TEST_PKGS)" ]; then echo "no test packages found"; exit 1; fi
@@ -43,11 +46,11 @@ gocyclo: $(BUILD_DIR)
 		echo "No non-test Go files found."; \
 		exit 0; \
 	fi; \
-	"$$($(GO) env GOPATH)/bin/gocyclo" -over 15 $$files
+	find cmd internal pkg -type f -name '*.go' ! -name '*_test.go' -print0 | xargs -0 "$$($(GO) env GOPATH)/bin/gocyclo" -over 15
 
 coverage: $(BUILD_DIR)
-	$(GO) test $(TEST_TREE) -coverpkg=./internal/... -coverprofile=.coverage.internal.out
-	@total="$$(go tool cover -func=.coverage.internal.out | awk '/^total:/ {gsub(/%/, "", $$3); print $$3}')"; \
+	$(GO) test $(TEST_TREE) -coverpkg=./internal/... -coverprofile=$(BUILD_DIR)/coverage.internal.out
+	@total="$$(go tool cover -func=$(BUILD_DIR)/coverage.internal.out | awk '/^total:/ {gsub(/%/, "", $$3); print $$3}')"; \
 	echo "Total internal coverage: $${total}%"; \
 	awk -v total="$$total" -v min="$(MIN_INTERNAL_COVERAGE)" 'BEGIN { exit !(total + 0 >= min + 0) }'
 
@@ -65,7 +68,12 @@ security: $(BUILD_DIR)
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	"$$(go env GOPATH)/bin/govulncheck" $(GO_PACKAGES)
 
-ci: fmt-check vet gocyclo test-all coverage smoke security build
+proto: $(BUILD_DIR)
+	PATH="$$PATH:$$($(GO) env GOPATH)/bin" protoc --proto_path=. --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/merger/v1/controlplane.proto
+
+ci-fast: fmt-check vet test coverage smoke build
+
+ci: ci-fast gocyclo security test-all
 
 build: $(BUILD_DIR)
 	$(GO) build ./cmd/...

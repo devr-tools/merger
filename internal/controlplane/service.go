@@ -37,9 +37,12 @@ func (s *Service) ListChangePackets(ctx context.Context, limit int) ([]domain.Ch
 	return s.repository.ListChangePackets(ctx, limit)
 }
 
-func (s *Service) UpdateEvidenceExecution(ctx context.Context, execution domain.EvidenceExecution) error {
+func (s *Service) UpdateEvidenceExecution(ctx context.Context, execution domain.EvidenceExecution) (domain.EvidenceExecution, error) {
 	if execution.UpdatedAt.IsZero() {
 		execution.UpdatedAt = time.Now().UTC()
 	}
-	return s.repository.UpsertEvidenceExecution(ctx, execution)
+	if err := s.repository.UpsertEvidenceExecution(ctx, execution); err != nil {
+		return domain.EvidenceExecution{}, err
+	}
+	return execution, nil
 }

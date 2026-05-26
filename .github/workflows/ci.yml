@@ -1,0 +1,424 @@
+name: ci.yml
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - master
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  GOCACHE: ${{ github.workspace }}/.gocache
+  GO111MODULE: "on"
+  GOVULNCHECK_MODE: required
+  GOVULNCHECK_VERSION: v1.3.0
+  GOCYCLO_VERSION: v0.6.0
+  MIN_INTERNAL_COVERAGE: "55.0"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-test-presence:
+    name: test presence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 50
+
+      - name: Check changed code paths have test coverage updates
+        shell: bash
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "${PR_BASE_REF}" --depth=1 || true
+          bash scripts/ci/check_test_presence.sh "origin/${PR_BASE_REF}"
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          make fmt-check
+
+  vet:
+    name: vet
+    needs:
+      - check-test-presence
+      - fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run go vet
+        run: make vet
+
+  gocyclo:
+    name: gocyclo
+    needs: vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Enforce cyclomatic complexity budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          if make gocyclo | tee gocyclo.out; then
+            true
+          else
+            echo "::error title=High cyclomatic complexity::gocyclo found functions above the limit"
+            exit 1
+          fi
+
+          {
+            echo "## Cyclomatic Complexity"
+            echo
+            if [ -s gocyclo.out ]; then
+              echo "Functions above the limit:"
+              echo '```'
+              sed -n '1,80p' gocyclo.out
+              echo '```'
+            else
+              echo "No functions exceeded the \`gocyclo\` limit of 15."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: test (${{ matrix.label }})
+    needs:
+      - vet
+      - gocyclo
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: ubuntu-latest full
+            test_command: go test ./tests/...
+          - os: macos-latest
+            label: macos-latest full
+            test_command: go test ./tests/...
+          - os: windows-latest
+            label: windows-latest full
+            test_command: go test ./tests/...
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run test suite
+        shell: bash
+        run: ${{ matrix.test_command }}
+
+  coverage:
+    name: coverage
+    needs:
+      - vet
+      - gocyclo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Enforce internal coverage gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          make coverage
+          total="$(go tool cover -func=.coverage.internal.out | awk '/^total:/ {gsub(/%/, "", $3); print $3}')"
+          {
+            echo "## Coverage"
+            echo
+            echo "Total internal coverage: ${total}%"
+            echo "Required minimum: ${MIN_INTERNAL_COVERAGE}%"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    name: smoke
+    needs:
+      - vet
+      - gocyclo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run smoke checks
+        run: make smoke
+
+  security:
+    name: security scan
+    needs:
+      - vet
+      - gocyclo
+    runs-on: ubuntu-latest
+    env:
+      PR_BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Fetch base branch
+        run: git fetch origin "${PR_BASE_REF}" --depth=1
+
+      - name: Install govulncheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          if go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}; then
+            exit 0
+          fi
+
+          if [ "${GOVULNCHECK_MODE}" = "required" ]; then
+            echo "::error title=govulncheck install failed::Failed to install govulncheck@${GOVULNCHECK_VERSION}"
+            exit 1
+          fi
+
+          echo "::warning::Failed to install govulncheck@${GOVULNCHECK_VERSION}; continuing because GOVULNCHECK_MODE=${GOVULNCHECK_MODE}"
+
+      - name: Dependency and code vulnerability scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "## Security Scan Results" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "### govulncheck" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${GOVULNCHECK_MODE}" = "off" ]; then
+            echo "Skipped because GOVULNCHECK_MODE=off." >> "$GITHUB_STEP_SUMMARY"
+          elif [ ! -x "$(go env GOPATH)/bin/govulncheck" ]; then
+            echo "::warning::govulncheck binary is unavailable"
+            echo "Skipped because govulncheck could not be installed for this Go toolchain." >> "$GITHUB_STEP_SUMMARY"
+          elif "$(go env GOPATH)/bin/govulncheck" ./... 2>&1 | tee govulncheck.log; then
+            echo "No known Go vulnerabilities detected." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::govulncheck reported findings"
+            echo "Potential vulnerabilities detected:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            sed -n '1,80p' govulncheck.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Critical files check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "### Critical Files Modified" >> "$GITHUB_STEP_SUMMARY"
+          critical="$(git diff --name-only "origin/${PR_BASE_REF}"...HEAD | grep -E '^(cmd/|internal/(github|events|store|controlplane|ingest|bootstrap|config)/|go\.mod|go\.sum|deployments/|config/|\.github/workflows/.*\.yml)' || true)"
+
+          if [ -n "$critical" ]; then
+            echo "**HIGH RISK**: critical files were modified:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' "$critical" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Critical platform files modified"
+          else
+            echo "No critical files modified." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Dangerous patterns scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "### Dangerous Code Patterns" >> "$GITHUB_STEP_SUMMARY"
+          patterns="$(git diff "origin/${PR_BASE_REF}"...HEAD | grep -E '^\+.*(exec\.Command(Context)?\(|http\.(Get|Post)\(|net\.Dial\(|os\.RemoveAll\(|os\.Setenv\(|syscall\.|unsafe \{|TODO|FIXME)' || true)"
+
+          if [ -n "$patterns" ]; then
+            echo "**Potentially sensitive additions detected:**" >> "$GITHUB_STEP_SUMMARY"
+            echo '```diff' >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' "$patterns" | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Potentially dangerous patterns detected"
+          else
+            echo "No dangerous patterns detected." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: New dependencies check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "### Dependency Changes" >> "$GITHUB_STEP_SUMMARY"
+
+          if git diff "origin/${PR_BASE_REF}"...HEAD -- go.mod | grep -E '^\+[^+]' > go_mod_additions.txt; then
+            echo "**go.mod additions:**" >> "$GITHUB_STEP_SUMMARY"
+            echo '```diff' >> "$GITHUB_STEP_SUMMARY"
+            sed -n '1,80p' go_mod_additions.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Dependency manifest changed"
+          else
+            echo "No go.mod additions detected." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  semgrep:
+    name: semgrep security scan
+    needs:
+      - vet
+      - gocyclo
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run Semgrep
+        run: semgrep scan --config auto --baseline-commit "${{ github.event.pull_request.base.sha }}" --error
+
+  benchmark:
+    name: benchmark
+    needs:
+      - vet
+      - gocyclo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run Go benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! rg -n "^func Benchmark" cmd internal pkg tests >/dev/null 2>&1; then
+            echo "No benchmarks defined." | tee bench.txt
+          else
+            go test ./... -run '^$' -bench . -benchmem | tee bench.txt
+          fi
+
+          {
+            echo "## Benchmarks"
+            echo
+            echo '```'
+            sed -n '1,80p' bench.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  doc-review:
+    name: doc review
+    if: github.base_ref == 'develop'
+    needs:
+      - vet
+      - gocyclo
+    runs-on: ubuntu-latest
+    env:
+      PR_BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch origin "${PR_BASE_REF}" --depth=1
+
+      - name: Check doc-sensitive changes have doc updates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          changed="$(git diff --name-only "origin/${PR_BASE_REF}"...HEAD)"
+          doc_sensitive="$(printf '%s\n' "$changed" | grep -E '^(\.github/workflows/|deployments/|config/|README\.md$|docs/|proto/)' || true)"
+          docs_changed="$(printf '%s\n' "$changed" | grep -E '^(README\.md|CONTRIBUTING\.md|docs/)' || true)"
+
+          if [ -z "$doc_sensitive" ]; then
+            echo "No changes that require documentation review." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ -n "$docs_changed" ]; then
+            echo "Relevant documentation files were updated." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "::error::Platform, workflow, proto, or deployment changes require updates in README.md or docs/"
+          exit 1
+
+  dco:
+    name: dco
+    if: github.base_ref == 'develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify Signed-off-by trailers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          missing=0
+
+          while IFS= read -r commit; do
+            [ -n "$commit" ] || continue
+
+            if ! git show -s --format=%B "$commit" | grep -qi '^Signed-off-by:'; then
+              echo "::error title=DCO check failed::commit $commit is missing a Signed-off-by trailer"
+              missing=1
+            fi
+          done < <(git rev-list "${base_sha}..${head_sha}")
+
+          exit "$missing"

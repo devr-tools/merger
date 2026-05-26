@@ -101,6 +101,17 @@ policies:
 
 MergeR now requires Go `1.25.10` for local development and CI. That upgrade is part of the security baseline, not an optional tooling preference.
 
+Bootstrap the expected toolchain into your shell before running repo commands:
+
+```bash
+eval "$(./scripts/dev/use-go-1.25.10.sh)"
+go version
+```
+
+That helper installs the `go1.25.10` launcher if needed, downloads the toolchain into `$HOME/sdk/go1.25.10`, and exports `GOROOT`, `PATH`, and `GO` for the current shell.
+
+After that one-time install, plain `make` targets will automatically prefer `$HOME/sdk/go1.25.10/bin/go` when it exists, so `make ci` does not depend on your shell defaulting to the right Go version.
+
 Use the provided compose stack for platform dependencies:
 
 ```bash

@@ -2,7 +2,7 @@ name: Devr Merger
 description: Analyze a pull request diff, classify mutations, and assign a merge lane with Devr Merger
 branding:
   icon: git-merge
-  color: purple
+  color: blue
 
 inputs:
   base-ref:

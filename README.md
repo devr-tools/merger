@@ -32,6 +32,8 @@ It is not a code review bot. The design center is operational coordination at a
 scale where autonomous agents generate more software mutations than humans can
 inspect by hand.
 
+**Contents:** [What it does](#what-it-does) · [Install](#install) · [Quickstart](#quickstart) · [SDK](#sdk) · [Merge lane model](#merge-lane-model) · [Change Packet flow](#change-packet-flow) · [Open-source shape](#open-source-shape) · [Docs](#docs)
+
 ## What it does
 
 - parses a PR diff into normalized changed files
@@ -198,10 +200,8 @@ surface.
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 
-## Roadmap
+---
 
-- Add Kafka and non-GitHub SCM providers to validate the public extension model.
-- Expand runtime graph ingestion from service catalogs, deployment systems, and ownership registries.
-- Add analyzer SDK examples for out-of-tree semantic detectors.
-- Introduce replay workers and outbox-based delivery guarantees.
-- Learn policy weights and lane thresholds from deploy outcomes and incident history.
+<p align="center">
+  <sub>Apache 2.0 · part of the <a href="https://github.com/devr-tools">devr-tools</a> suite</sub>
+</p>

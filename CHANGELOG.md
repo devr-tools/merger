@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.0.0](https://github.com/devr-tools/merger/compare/v0.1.0...v1.0.0) (2026-07-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* import paths change from github.com/mergerhq/merger/... to github.com/devr-tools/merger/...
+
+### Features
+
+* add GitHub Action and Homebrew distribution for the CLI ([308672b](https://github.com/devr-tools/merger/commit/308672b36550e7e0936b247719fdd34391521115))
+* add MCP server and extract shared config resolution ([351677d](https://github.com/devr-tools/merger/commit/351677d9028f02e28d5494c52ecf8e826d78d163))
+* add pkg/merger SDK for the offline scan pipeline ([f633dea](https://github.com/devr-tools/merger/commit/f633deafd78352f3c13aee7957b7ac204f7c149a))
+* add user-facing merger CLI with offline scan pipeline ([45d86b4](https://github.com/devr-tools/merger/commit/45d86b4db347b4a4a56e2c2ff522282556eb6779))
+
+
+### Bug Fixes
+
+* use /bin/bash in Makefile for CI portability ([62b1cc2](https://github.com/devr-tools/merger/commit/62b1cc22b4c1c1375dc8db70053a8a2ec4cf577f))
+
+
+### Code Refactoring
+
+* rename module to github.com/devr-tools/merger ([91f5f6b](https://github.com/devr-tools/merger/commit/91f5f6b79fbe7c611fd2239a0c93ec0c3a7580c3))
+
+## Changelog
+
 ## Unreleased
 
 ### Features

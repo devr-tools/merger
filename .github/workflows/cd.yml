@@ -112,7 +112,8 @@ jobs:
     with:
       tag: ${{ needs.prepare-prerelease.outputs.tag }}
       prerelease: true
-    secrets: inherit
+    secrets:
+      RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
   release-please:
     if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
@@ -156,4 +157,5 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
       prerelease: false
-    secrets: inherit
+    secrets:
+      RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}

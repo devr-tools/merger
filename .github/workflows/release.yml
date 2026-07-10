@@ -11,6 +11,10 @@ on:
         description: Whether this release should stay in the prerelease channel.
         required: true
         type: boolean
+    secrets:
+      RELEASE_PLEASE_TOKEN:
+        description: Token used to open the Homebrew formula PR on stable releases.
+        required: false
   workflow_dispatch:
     inputs:
       tag:

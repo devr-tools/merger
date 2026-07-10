@@ -40,19 +40,27 @@ runs:
 
     - name: Install Devr Merger
       shell: bash
-      run: go install github.com/devr-tools/merger/cmd/merger@${{ inputs.version }}
+      env:
+        VERSION: ${{ inputs.version }}
+      run: go install "github.com/devr-tools/merger/cmd/merger@${VERSION}"
 
     - name: Run Devr Merger scan
       id: scan
       shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+        REPO_ROOT: ${{ inputs.repo-root }}
+        FORMAT: ${{ inputs.format }}
+        CONFIG: ${{ inputs.config }}
+        FAIL_ON_LANE: ${{ inputs.fail-on-lane }}
       run: |
         set +e
-        args=(scan -base-ref "${{ inputs.base-ref }}" -repo-root "${{ inputs.repo-root }}" -format "${{ inputs.format }}")
-        if [ -n "${{ inputs.config }}" ]; then
-          args+=(-config "${{ inputs.config }}")
+        args=(scan -base-ref "$BASE_REF" -repo-root "$REPO_ROOT" -format "$FORMAT")
+        if [ -n "$CONFIG" ]; then
+          args+=(-config "$CONFIG")
         fi
-        if [ -n "${{ inputs.fail-on-lane }}" ]; then
-          args+=(-fail-on-lane "${{ inputs.fail-on-lane }}")
+        if [ -n "$FAIL_ON_LANE" ]; then
+          args+=(-fail-on-lane "$FAIL_ON_LANE")
         fi
         merger "${args[@]}"
         status=$?

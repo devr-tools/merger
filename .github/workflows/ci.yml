@@ -347,7 +347,9 @@ jobs:
           fetch-depth: 0
 
       - name: Run Semgrep
-        run: semgrep scan --config auto --baseline-commit "${{ github.event.pull_request.base.sha }}" --error
+        # mutable-action-tag is excluded: merger intentionally pins actions to
+        # version tags (matching the sibling devr-tools tools), not commit SHAs.
+        run: semgrep scan --config auto --baseline-commit "${{ github.event.pull_request.base.sha }}" --exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag --error
 
   benchmark:
     name: benchmark

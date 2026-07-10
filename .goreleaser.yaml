@@ -3,6 +3,19 @@ version: 2
 project_name: merger
 
 builds:
+  - id: merger
+    main: ./cmd/merger
+    binary: merger
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/mergerhq/merger/internal/version.Number=v{{ .Version }}
   - id: merger-ingest
     main: ./cmd/merger-ingest
     binary: merger-ingest
@@ -33,6 +46,7 @@ builds:
 archives:
   - id: merger
     ids:
+      - merger
       - merger-ingest
       - merger-controlplane
     formats:

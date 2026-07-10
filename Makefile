@@ -1,4 +1,4 @@
-SHELL := /bin/zsh
+SHELL := /bin/bash
 
 APP_NAME := merger
 GO_TOOLCHAIN_VERSION ?= 1.25.10

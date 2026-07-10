@@ -55,6 +55,36 @@ Configuration is auto-discovered from `merger.yaml` or `.merger/merger.yaml`
 (see [internal/cli](/Users/alex/Documents/GitHub/merger/internal/cli:1) and the
 offline pipeline in [internal/scan](/Users/alex/Documents/GitHub/merger/internal/scan/scan.go:1)).
 
+## SDK
+
+The same offline pipeline is available as a library from
+`github.com/devr-tools/merger/pkg/merger`:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/devr-tools/merger/pkg/merger"
+)
+
+func main() {
+	packet, err := merger.Scan(context.Background(), merger.ScanOptions{
+		Diff:  rawUnifiedDiff,
+		Lanes: merger.DefaultLanes(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(packet.MergeLane)
+}
+```
+
+Load a policy rule set with `merger.LoadPolicy(path)` and pass it as
+`ScanOptions.Policy`. See [docs/sdk.md](docs/sdk.md).
+
 ## Architecture
 
 The repository is organized around domain boundaries instead of a single service package:

@@ -49,6 +49,11 @@ policies:
       minimum_lane: RED
 `
 
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "repository root to initialize")

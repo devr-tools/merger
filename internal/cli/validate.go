@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/devr-tools/merger/internal/config"
+	"github.com/devr-tools/merger/internal/resolve"
 )
 
 func runValidate(args []string) error {
@@ -17,7 +18,7 @@ func runValidate(args []string) error {
 		return err
 	}
 
-	cfg, resolvedConfig, err := loadConfig(*root, *configPath)
+	cfg, resolvedConfig, err := resolve.Config(*root, *configPath)
 	if err != nil {
 		return err
 	}
@@ -30,7 +31,7 @@ func runValidate(args []string) error {
 
 	// A policy file is required for a configuration to be considered valid:
 	// the whole point of merger is to evaluate policy against mutations.
-	policyConfig, resolvedPolicy, found, err := loadPolicy(*root, *policyPath, cfg)
+	policyConfig, resolvedPolicy, found, err := resolve.Policy(*root, *policyPath, cfg)
 	if err != nil {
 		return err
 	}

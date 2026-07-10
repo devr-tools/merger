@@ -56,6 +56,9 @@ Configuration is auto-discovered from `merger.yaml` or `.merger/merger.yaml`
 (see [internal/cli](/Users/alex/Documents/GitHub/merger/internal/cli:1) and the
 offline pipeline in [internal/scan](/Users/alex/Documents/GitHub/merger/internal/scan/scan.go:1)).
 
+`merger mcp` serves the same analysis as agent tools over the Model Context
+Protocol (stdio) — see [docs/mcp.md](docs/mcp.md).
+
 ## SDK
 
 The same offline pipeline is available as a library from

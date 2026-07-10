@@ -45,6 +45,8 @@ func Run(ctx context.Context, args []string) error {
 		return runValidate(rest)
 	case "scan":
 		return runScan(ctx, rest)
+	case "mcp":
+		return runMCP(ctx, rest)
 	case "help", "--help", "-h":
 		printUsage(os.Stdout)
 		return nil
@@ -64,6 +66,7 @@ Commands:
   scan        Analyze a diff and assign a merge lane (offline pipeline)
   validate    Validate a merger configuration and its policy file
   init        Scaffold a .merger/ configuration in the current repository
+  mcp         Serve the analysis tools over MCP (stdio)
   version     Print the merger version
   help        Show this help
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/devr-tools/merger/internal/domain"
-	"github.com/devr-tools/merger/internal/lanes"
+	"github.com/devr-tools/merger/internal/resolve"
 	"github.com/devr-tools/merger/internal/scan"
 )
 
@@ -51,9 +51,12 @@ func runScan(ctx context.Context, args []string) error {
 		return err
 	}
 
-	options, err := buildScanOptions(*root, *configPath, *policyPath, *repo, *ref, rawDiff, *format == "text")
+	options, policyFound, err := resolve.ScanOptions(*root, *configPath, *policyPath, *repo, *ref, rawDiff)
 	if err != nil {
 		return err
+	}
+	if !policyFound && *format == "text" {
+		fmt.Fprintln(os.Stderr, "merger: no policy file found — scanning with an empty rule set")
 	}
 
 	packet, err := scan.Run(ctx, options)
@@ -75,37 +78,6 @@ func runScan(ctx context.Context, args []string) error {
 	return nil
 }
 
-// buildScanOptions discovers configuration and policy and assembles the scan
-// options. When warnMissingPolicy is set, a missing policy file is reported to
-// stderr (a scan proceeds with an empty rule set regardless).
-func buildScanOptions(root, configPath, policyPath, repo, ref, rawDiff string, warnMissingPolicy bool) (scan.Options, error) {
-	cfg, _, err := loadConfig(root, configPath)
-	if err != nil {
-		return scan.Options{}, err
-	}
-	policyConfig, _, policyFound, err := loadPolicy(root, policyPath, cfg)
-	if err != nil {
-		return scan.Options{}, err
-	}
-	if !policyFound && warnMissingPolicy {
-		fmt.Fprintln(os.Stderr, "merger: no policy file found — scanning with an empty rule set")
-	}
-
-	return scan.Options{
-		Diff:     rawDiff,
-		RepoRoot: root,
-		Repo:     repoRef(repo),
-		Ref:      ref,
-		Policy:   policyConfig,
-		Lanes: lanes.Config{
-			GreenMax:  cfg.Lanes.GreenMax,
-			YellowMax: cfg.Lanes.YellowMax,
-			RedMax:    cfg.Lanes.RedMax,
-		},
-		EnableCodeOwners: cfg.RuntimeGraph.EnableCodeOwners,
-	}, nil
-}
-
 func parseFailLane(raw string) (domain.MergeLane, error) {
 	if raw == "" {
 		return "", nil
@@ -115,17 +87,6 @@ func parseFailLane(raw string) (domain.MergeLane, error) {
 		return "", fmt.Errorf("invalid -fail-on-lane %q (want GREEN, YELLOW, RED, or BLACK)", raw)
 	}
 	return lane, nil
-}
-
-func repoRef(raw string) domain.RepoRef {
-	if raw == "" {
-		return domain.RepoRef{}
-	}
-	owner, name, found := strings.Cut(raw, "/")
-	if !found {
-		return domain.RepoRef{Name: raw, FullName: raw}
-	}
-	return domain.RepoRef{Owner: owner, Name: name, FullName: raw}
 }
 
 func readDiff(root, diffPath, baseRef string) (string, error) {

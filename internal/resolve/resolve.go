@@ -1,17 +1,24 @@
-package cli
+// Package resolve turns a repository root and optional config/policy paths into
+// a ready-to-run scan.Options. It centralizes merger's config auto-discovery so
+// the CLI and the MCP server resolve configuration identically.
+package resolve
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/devr-tools/merger/internal/config"
+	"github.com/devr-tools/merger/internal/domain"
+	"github.com/devr-tools/merger/internal/lanes"
 	"github.com/devr-tools/merger/internal/policy"
+	"github.com/devr-tools/merger/internal/scan"
 )
 
 // configCandidates lists the config locations merger auto-discovers, in
-// priority order, relative to the repository root. This mirrors the
-// devr-tools convention (a root file, then a tool-named dot directory).
+// priority order, relative to the repository root. This mirrors the devr-tools
+// convention (a root file, then a tool-named dot directory).
 var configCandidates = []string{
 	"merger.yaml",
 	"merger.yml",
@@ -65,9 +72,9 @@ func discoverConfigPath(root, explicit string) (string, error) {
 	return "", nil
 }
 
-// loadConfig discovers and loads configuration, falling back to defaults when
-// none is found. It returns the resolved path ("" when defaults were used).
-func loadConfig(root, explicit string) (config.Config, string, error) {
+// Config discovers and loads configuration, falling back to defaults when none
+// is found. It returns the resolved path ("" when defaults were used).
+func Config(root, explicit string) (config.Config, string, error) {
 	path, err := discoverConfigPath(root, explicit)
 	if err != nil {
 		return config.Config{}, "", err
@@ -82,10 +89,10 @@ func loadConfig(root, explicit string) (config.Config, string, error) {
 	return cfg, path, nil
 }
 
-// resolvePolicyPath determines the policy file for a run. An explicit flag wins;
+// PolicyPath determines the policy file for a run. An explicit flag wins;
 // otherwise the config's policy path is resolved relative to root. The returned
 // path is empty when no policy file could be located.
-func resolvePolicyPath(root, explicit string, cfg config.Config) string {
+func PolicyPath(root, explicit string, cfg config.Config) string {
 	if explicit != "" {
 		return explicit
 	}
@@ -102,10 +109,10 @@ func resolvePolicyPath(root, explicit string, cfg config.Config) string {
 	return ""
 }
 
-// loadPolicy loads a policy file when one is resolvable. A missing policy is
-// not an error for scanning: it yields an empty rule set and found=false.
-func loadPolicy(root, explicit string, cfg config.Config) (policy.Config, string, bool, error) {
-	path := resolvePolicyPath(root, explicit, cfg)
+// Policy loads a policy file when one is resolvable. A missing policy is not an
+// error: it yields an empty rule set and found=false.
+func Policy(root, explicit string, cfg config.Config) (policy.Config, string, bool, error) {
+	path := PolicyPath(root, explicit, cfg)
 	if path == "" {
 		return policy.Config{}, "", false, nil
 	}
@@ -114,4 +121,43 @@ func loadPolicy(root, explicit string, cfg config.Config) (policy.Config, string
 		return policy.Config{}, path, false, fmt.Errorf("load policy %s: %w", path, err)
 	}
 	return policyConfig, path, true, nil
+}
+
+// RepoRef parses an "owner/name" identifier into a domain.RepoRef.
+func RepoRef(raw string) domain.RepoRef {
+	if raw == "" {
+		return domain.RepoRef{}
+	}
+	owner, name, found := strings.Cut(raw, "/")
+	if !found {
+		return domain.RepoRef{Name: raw, FullName: raw}
+	}
+	return domain.RepoRef{Owner: owner, Name: name, FullName: raw}
+}
+
+// ScanOptions discovers configuration and policy and assembles the scan
+// options for a diff. The bool return reports whether a policy file was found.
+func ScanOptions(root, configPath, policyPath, repo, ref, diff string) (scan.Options, bool, error) {
+	cfg, _, err := Config(root, configPath)
+	if err != nil {
+		return scan.Options{}, false, err
+	}
+	policyConfig, _, policyFound, err := Policy(root, policyPath, cfg)
+	if err != nil {
+		return scan.Options{}, false, err
+	}
+
+	return scan.Options{
+		Diff:     diff,
+		RepoRoot: root,
+		Repo:     RepoRef(repo),
+		Ref:      ref,
+		Policy:   policyConfig,
+		Lanes: lanes.Config{
+			GreenMax:  cfg.Lanes.GreenMax,
+			YellowMax: cfg.Lanes.YellowMax,
+			RedMax:    cfg.Lanes.RedMax,
+		},
+		EnableCodeOwners: cfg.RuntimeGraph.EnableCodeOwners,
+	}, policyFound, nil
 }

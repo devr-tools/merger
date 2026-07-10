@@ -1,0 +1,11 @@
+FROM alpine:3.20
+
+RUN apk --no-cache add ca-certificates
+
+COPY merger-ingest /usr/bin/merger-ingest
+COPY merger-controlplane /usr/bin/merger-controlplane
+
+# merger ships two services in one image. The default command runs the
+# control plane; override it to run ingest instead, for example:
+#   docker run ghcr.io/devr-tools/merger:<tag> merger-ingest
+CMD ["merger-controlplane"]

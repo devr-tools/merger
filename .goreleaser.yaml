@@ -1,0 +1,80 @@
+version: 2
+
+project_name: merger
+
+builds:
+  - id: merger-ingest
+    main: ./cmd/merger-ingest
+    binary: merger-ingest
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/mergerhq/merger/internal/version.Number=v{{ .Version }}
+  - id: merger-controlplane
+    main: ./cmd/merger-controlplane
+    binary: merger-controlplane
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/mergerhq/merger/internal/version.Number=v{{ .Version }}
+
+archives:
+  - id: merger
+    ids:
+      - merger-ingest
+      - merger-controlplane
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_v{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: SHA256SUMS
+
+dockers:
+  - id: merger-amd64
+    ids:
+      - merger-ingest
+      - merger-controlplane
+    dockerfile: Dockerfile.release
+    goos: linux
+    goarch: amd64
+    use: buildx
+    image_templates:
+      - "ghcr.io/devr-tools/merger:{{ .Tag }}-amd64"
+    build_flag_templates:
+      - "--pull"
+      - "--platform=linux/amd64"
+  - id: merger-arm64
+    ids:
+      - merger-ingest
+      - merger-controlplane
+    dockerfile: Dockerfile.release
+    goos: linux
+    goarch: arm64
+    use: buildx
+    image_templates:
+      - "ghcr.io/devr-tools/merger:{{ .Tag }}-arm64"
+    build_flag_templates:
+      - "--pull"
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: "ghcr.io/devr-tools/merger:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/devr-tools/merger:{{ .Tag }}-amd64"
+      - "ghcr.io/devr-tools/merger:{{ .Tag }}-arm64"
+
+release:
+  prerelease: auto

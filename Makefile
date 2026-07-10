@@ -18,13 +18,14 @@ TEST_TREE := ./tests/...
 GO_FILES := $(shell find cmd internal pkg proto tests -type f -name '*.go' | sort)
 GOCYCLO_VERSION ?= v0.6.0
 GOVULNCHECK_VERSION ?= v1.3.0
+GOLANGCI_LINT_VERSION ?= v2.1.6
 MIN_INTERNAL_COVERAGE ?= 60.0
 BASE_REF ?= origin/main
 export GOCACHE := $(abspath $(BUILD_DIR)/go-cache)
 export GOROOT
 export PATH := $(GOROOT)/bin:$(PATH)
 
-.PHONY: fmt fmt-check test test-all vet gocyclo coverage smoke benchmark security proto ci-fast ci build verify run-ingest run-controlplane compose-up compose-down docker-build clean
+.PHONY: fmt fmt-check lint test test-all vet gocyclo coverage smoke benchmark security proto ci-fast ci build verify run-ingest run-controlplane compose-up compose-down docker-build release release-check release-snapshot deploy commit clean
 
 $(BUILD_DIR):
 	mkdir -p $(GOCACHE)
@@ -51,6 +52,10 @@ test-all: $(BUILD_DIR)
 
 vet: $(BUILD_DIR)
 	$(GO) vet $(GO_PACKAGES)
+
+lint: $(BUILD_DIR)
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	"$$($(GO) env GOPATH)/bin/golangci-lint" run ./...
 
 gocyclo: $(BUILD_DIR)
 	$(GO) install github.com/fzipp/gocyclo/cmd/gocyclo@$(GOCYCLO_VERSION)
@@ -107,6 +112,19 @@ compose-down:
 
 docker-build:
 	docker build -f deployments/docker/Dockerfile -t $(APP_NAME):dev .
+
+release: release-snapshot
+
+release-check:
+	goreleaser check
+
+release-snapshot:
+	goreleaser release --snapshot --clean
+
+deploy: release
+
+commit:
+	@./scripts/commit.sh
 
 clean:
 	rm -rf ./.build

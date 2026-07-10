@@ -1,0 +1,164 @@
+name: release.yml
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build from.
+        required: true
+        type: string
+      prerelease:
+        description: Whether this release should stay in the prerelease channel.
+        required: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create or publish.
+        required: true
+        type: string
+      prerelease:
+        description: Mark the release as a prerelease.
+        required: true
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Resolve release context
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          DISPATCH_PRERELEASE: ${{ github.event.inputs.prerelease }}
+          CALL_TAG: ${{ inputs.tag }}
+          CALL_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${CALL_TAG:-}" ]; then
+            raw_tag="$CALL_TAG"
+            prerelease="$CALL_PRERELEASE"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+            if [[ "$tag" =~ ^([A-Za-z0-9._-]+-)?v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]; then
+              prerelease="true"
+            else
+              prerelease="false"
+            fi
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            raw_tag="$DISPATCH_TAG"
+            prerelease="$DISPATCH_PRERELEASE"
+          else
+            echo "unable to resolve release tag from inputs or event context"
+            exit 1
+          fi
+
+          if [ -n "${raw_tag:-}" ]; then
+            tag="$(printf '%s' "$raw_tag" | tr -d '[:space:]')"
+            tag="${tag#refs/tags/}"
+            tag="${tag#tag=}"
+            tag="${tag##*:}"
+
+            if [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              tag="v$tag"
+            fi
+          fi
+
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >>"$GITHUB_OUTPUT"
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+          prerelease="${{ steps.release.outputs.prerelease }}"
+          tag_pattern='^([A-Za-z0-9._-]+-)?v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          prerelease_pattern='^([A-Za-z0-9._-]+-)?v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$'
+
+          if ! [[ "$tag" =~ $tag_pattern ]]; then
+            echo "tag must look like v1.2.3, v1.2.3-rc.4, or merger-v1.2.3"
+            echo "received: '$tag'"
+            exit 1
+          fi
+
+          if [ "$prerelease" = "true" ] && [[ ! "$tag" =~ $prerelease_pattern ]]; then
+            echo "prerelease tags must include a prerelease suffix, for example -rc.4"
+            exit 1
+          fi
+
+          if [ "$prerelease" != "true" ] && [[ "$tag" =~ $prerelease_pattern ]]; then
+            echo "stable releases must use a stable semantic version tag"
+            exit 1
+          fi
+
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Ensure requested tag exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+
+          git fetch --tags --force
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            :
+          elif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$tag:refs/tags/$tag"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "Release $tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+
+          git checkout "$tag"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean --config .goreleaser.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ steps.release.outputs.tag }}
+          path: dist/*

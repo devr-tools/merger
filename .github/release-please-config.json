@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "7e52488e698d3e978ddcdb2d319e35a162aebf16",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "package-name": "merger",
+      "include-component-in-tag": false,
+      "changelog-path": "CHANGELOG.md",
+      "include-v-in-tag": true,
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "internal/version/version.go"
+        }
+      ]
+    }
+  }
+}

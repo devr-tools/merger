@@ -1,0 +1,34 @@
+version: "2"
+
+run:
+  timeout: 5m
+  relative-path-mode: gomod
+  tests: false
+
+# NOTE: merger's CI gate is currently fmt/vet/gocyclo/coverage/security (see
+# .github/workflows/ci.yml, which has no golangci-lint job). This config is
+# introduced ahead of a gating `lint` job so the ruleset can be reviewed and
+# any pre-existing findings cleaned up first. Promote `make lint` to a required
+# CI check once the tree is clean under these linters.
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errcheck
+    - staticcheck
+    - funlen
+    - gocognit
+    - maintidx
+  settings:
+    funlen:
+      lines: 120
+      statements: 60
+      ignore-comments: true
+    gocognit:
+      min-complexity: 25
+    maintidx:
+      under: 20
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -21,6 +21,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := config.ValidateForService(cfg); err != nil {
+		log.Fatal(err)
+	}
 
 	logger := telemetry.NewLogger(cfg.Logging.Level)
 	repo, err := bootstrap.BuildRepository(context.Background(), cfg)

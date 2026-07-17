@@ -54,6 +54,20 @@ func TestServerListChangePackets(t *testing.T) {
 	}
 }
 
+func TestServerCapsListChangePacketsLimit(t *testing.T) {
+	repository := &limitRecordingRepository{MemoryRepository: store.NewMemoryRepository()}
+	client, cleanup := newTestClientWithRepository(t, repository)
+	defer cleanup()
+
+	_, err := client.ListChangePackets(context.Background(), &mergerv1.ListChangePacketsRequest{Limit: 999})
+	if err != nil {
+		t.Fatalf("list change packets: %v", err)
+	}
+	if repository.limit != controlplane.MaxListLimit {
+		t.Fatalf("expected repository limit %d, got %d", controlplane.MaxListLimit, repository.limit)
+	}
+}
+
 func TestServerUpdateEvidenceExecution(t *testing.T) {
 	client, cleanup := newTestClient(t)
 	defer cleanup()
@@ -61,9 +75,9 @@ func TestServerUpdateEvidenceExecution(t *testing.T) {
 	response, err := client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
 		ChangePacketId: "cp_1",
 		Name:           "integration_tests",
-		Type:           "integration_tests",
+		Type:           "security_review",
 		Status:         "satisfied",
-		Required:       true,
+		Required:       false,
 		Summary:        "ci passed",
 		UpdatedBy:      "ci",
 	})
@@ -76,6 +90,9 @@ func TestServerUpdateEvidenceExecution(t *testing.T) {
 	}
 	if response.GetEvidence().GetUpdatedAt() == "" {
 		t.Fatal("expected updated timestamp")
+	}
+	if response.GetEvidence().GetType() != string(domain.EvidenceIntegrationTests) || !response.GetEvidence().GetRequired() {
+		t.Fatalf("expected policy-owned evidence fields, got type=%q required=%t", response.GetEvidence().GetType(), response.GetEvidence().GetRequired())
 	}
 }
 
@@ -101,12 +118,99 @@ func TestServerValidatesRequests(t *testing.T) {
 	}
 }
 
+func TestServerMapsEvidenceUpdateErrors(t *testing.T) {
+	client, cleanup := newTestClient(t)
+	defer cleanup()
+
+	tests := []struct {
+		name    string
+		request *mergerv1.UpdateEvidenceExecutionRequest
+		code    codes.Code
+	}{
+		{
+			name: "empty status",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "integration_tests",
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "invalid status",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "integration_tests",
+				Status:         "unknown",
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "missing packet",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "missing",
+				Name:           "integration_tests",
+				Status:         "satisfied",
+			},
+			code: codes.NotFound,
+		},
+		{
+			name: "undeclared evidence",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "security_review",
+				Status:         "satisfied",
+			},
+			code: codes.NotFound,
+		},
+		{
+			name: "unattributed waiver",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "integration_tests",
+				Status:         "waived",
+			},
+			code: codes.InvalidArgument,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := client.UpdateEvidenceExecution(context.Background(), test.request)
+			if status.Code(err) != test.code {
+				t.Fatalf("expected %s, got %v", test.code, err)
+			}
+		})
+	}
+
+	_, err := client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "satisfied",
+	})
+	if err != nil {
+		t.Fatalf("satisfy evidence: %v", err)
+	}
+	_, err = client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "running",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected failed precondition, got %v", err)
+	}
+}
+
 func newTestClient(t *testing.T) (mergerv1.ChangeControlServiceClient, func()) {
 	t.Helper()
 
 	repository := store.NewMemoryRepository()
 	seedChangePacket(t, repository, "cp_1", 42, time.Now().UTC())
 	seedChangePacket(t, repository, "cp_2", 43, time.Now().UTC().Add(time.Minute))
+	return newTestClientWithRepository(t, repository)
+}
+
+func newTestClientWithRepository(t *testing.T, repository store.Repository) (mergerv1.ChangeControlServiceClient, func()) {
+	t.Helper()
 
 	service := controlplane.NewService(repository)
 	server := grpc.NewServer()
@@ -134,6 +238,16 @@ func newTestClient(t *testing.T) (mergerv1.ChangeControlServiceClient, func()) {
 	}
 
 	return mergerv1.NewChangeControlServiceClient(conn), cleanup
+}
+
+type limitRecordingRepository struct {
+	*store.MemoryRepository
+	limit int
+}
+
+func (r *limitRecordingRepository) ListChangePackets(ctx context.Context, limit int) ([]domain.ChangePacket, error) {
+	r.limit = limit
+	return r.MemoryRepository.ListChangePackets(ctx, limit)
 }
 
 func seedChangePacket(t *testing.T, repository *store.MemoryRepository, id string, prNumber int, updatedAt time.Time) {

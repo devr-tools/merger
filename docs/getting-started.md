@@ -63,6 +63,11 @@ contributors, mitigations, affected services, and runtime notes, add
 merger scan -base-ref origin/main -explain
 ```
 
+`merger validate` uses the same strict validators as the SDK, MCP server, and
+long-running services. It rejects unknown YAML fields, invalid lane thresholds
+or enum values, duplicate policy names, and rules with no condition or effect.
+This catches misspelled safety controls before a scan or service starts.
+
 ### Configuration discovery
 
 `merger` auto-discovers configuration from, in order:

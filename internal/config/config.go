@@ -1,7 +1,11 @@
 package config
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -121,9 +125,102 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil {
+		return Config{}, err
+	}
+	if err := ensureSingleDocument(decoder); err != nil {
+		return Config{}, err
+	}
+	if err := Validate(cfg); err != nil {
 		return Config{}, err
 	}
 
 	return cfg, nil
+}
+
+// Validate checks configuration values that apply to every merger execution,
+// including local scans and long-running services.
+func Validate(cfg Config) error {
+	if cfg.Lanes.GreenMax < 0 || cfg.Lanes.GreenMax > 100 ||
+		cfg.Lanes.YellowMax < 0 || cfg.Lanes.YellowMax > 100 ||
+		cfg.Lanes.RedMax < 0 || cfg.Lanes.RedMax > 100 {
+		return fmt.Errorf("lane thresholds must be between 0 and 100: green(%d), yellow(%d), red(%d)", cfg.Lanes.GreenMax, cfg.Lanes.YellowMax, cfg.Lanes.RedMax)
+	}
+	if !(cfg.Lanes.GreenMax < cfg.Lanes.YellowMax && cfg.Lanes.YellowMax < cfg.Lanes.RedMax) {
+		return fmt.Errorf("lane thresholds must be strictly increasing: green(%d) < yellow(%d) < red(%d)", cfg.Lanes.GreenMax, cfg.Lanes.YellowMax, cfg.Lanes.RedMax)
+	}
+
+	if !oneOf(cfg.Events.Backend, "memory", "nats") {
+		return fmt.Errorf("unsupported events backend %q (supported: memory, nats)", cfg.Events.Backend)
+	}
+	if !oneOf(cfg.Persistence.Backend, "memory", "postgres") {
+		return fmt.Errorf("unsupported persistence backend %q (supported: memory, postgres)", cfg.Persistence.Backend)
+	}
+
+	return nil
+}
+
+// ValidateForService checks configuration shared by long-running services.
+func ValidateForService(cfg Config) error {
+	return Validate(cfg)
+}
+
+// ValidateForIngest adds checks for integrations constructed by the ingest
+// service. InstallationID may be zero because webhook deliveries bind their
+// GitHub App installation dynamically.
+func ValidateForIngest(cfg Config) error {
+	if err := ValidateForService(cfg); err != nil {
+		return err
+	}
+	if !cfg.GitHub.Enabled {
+		return nil
+	}
+
+	missing := make([]string, 0, 3)
+	if missingOrPlaceholder(cfg.GitHub.WebhookSecret) {
+		missing = append(missing, "github.webhook_secret")
+	}
+	if missingOrPlaceholder(cfg.GitHub.AppID) {
+		missing = append(missing, "github.app_id")
+	}
+	if missingOrPlaceholder(cfg.GitHub.PrivateKeyPath) {
+		missing = append(missing, "github.private_key_path")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("github is enabled but required settings are missing or invalid: %s", strings.Join(missing, ", "))
+	}
+
+	return nil
+}
+
+func missingOrPlaceholder(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "replace-me", "replace_me", "change-me", "changeme", "todo":
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureSingleDocument(decoder *yaml.Decoder) error {
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("configuration must contain exactly one YAML document")
+		}
+		return err
+	}
+	return nil
+}
+
+func oneOf(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }

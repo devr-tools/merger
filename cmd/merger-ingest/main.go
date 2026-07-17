@@ -22,6 +22,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := config.ValidateForIngest(cfg); err != nil {
+		log.Fatal(err)
+	}
 
 	policyConfig, err := policy.LoadConfig(cfg.Policy.Path)
 	if err != nil {

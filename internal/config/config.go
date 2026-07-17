@@ -29,17 +29,35 @@ type AccessMode string
 const (
 	AccessModeDisabled    AccessMode = "disabled"
 	AccessModeStaticToken AccessMode = "static_token"
+	AccessModeJWT         AccessMode = "jwt"
 )
 
 type AccessConfig struct {
 	Mode   AccessMode          `yaml:"mode"`
 	Tokens []AccessTokenConfig `yaml:"tokens"`
+	JWT    AccessJWTConfig     `yaml:"jwt"`
 }
 
 type AccessTokenConfig struct {
 	Subject  string        `yaml:"subject"`
 	TokenEnv string        `yaml:"token_env"`
 	Roles    []access.Role `yaml:"roles"`
+}
+
+type AccessJWTConfig struct {
+	Algorithm     string                   `yaml:"algorithm"`
+	Issuer        string                   `yaml:"issuer"`
+	Audience      string                   `yaml:"audience"`
+	SubjectClaim  string                   `yaml:"subject_claim"`
+	RolesClaim    string                   `yaml:"roles_claim"`
+	SecretEnv     string                   `yaml:"secret_env"`
+	PublicKeyPath string                   `yaml:"public_key_path"`
+	RoleBindings  []AccessJWTBindingConfig `yaml:"role_bindings"`
+}
+
+type AccessJWTBindingConfig struct {
+	ClaimValue string        `yaml:"claim_value"`
+	Roles      []access.Role `yaml:"roles"`
 }
 
 type ServiceConfig struct {
@@ -193,13 +211,24 @@ func validateAccess(cfg AccessConfig) error {
 		if len(cfg.Tokens) > 0 {
 			return fmt.Errorf("access tokens must be empty when access.mode is %q", AccessModeDisabled)
 		}
+		if !isZeroJWTConfig(cfg.JWT) {
+			return fmt.Errorf("access.jwt must be empty when access.mode is %q", AccessModeDisabled)
+		}
 		return nil
 	case AccessModeStaticToken:
 		if len(cfg.Tokens) == 0 {
 			return fmt.Errorf("access.tokens must contain at least one entry when access.mode is %q", AccessModeStaticToken)
 		}
+		if !isZeroJWTConfig(cfg.JWT) {
+			return fmt.Errorf("access.jwt must be empty when access.mode is %q", AccessModeStaticToken)
+		}
+	case AccessModeJWT:
+		if len(cfg.Tokens) > 0 {
+			return fmt.Errorf("access.tokens must be empty when access.mode is %q", AccessModeJWT)
+		}
+		return validateJWTAccess(cfg.JWT)
 	default:
-		return fmt.Errorf("unsupported access mode %q (supported: disabled, static_token)", cfg.Mode)
+		return fmt.Errorf("unsupported access mode %q (supported: disabled, static_token, jwt)", cfg.Mode)
 	}
 
 	subjects := make(map[string]struct{}, len(cfg.Tokens))
@@ -240,6 +269,83 @@ func validateAccess(cfg AccessConfig) error {
 	}
 
 	return nil
+}
+
+func validateJWTAccess(cfg AccessJWTConfig) error {
+	algorithm := strings.ToUpper(strings.TrimSpace(cfg.Algorithm))
+	switch algorithm {
+	case "HS256":
+		secretEnv := strings.TrimSpace(cfg.SecretEnv)
+		if !validEnvironmentName(secretEnv) {
+			return fmt.Errorf("access.jwt.secret_env %q is not a valid environment variable name", cfg.SecretEnv)
+		}
+		if strings.TrimSpace(cfg.PublicKeyPath) != "" {
+			return fmt.Errorf("access.jwt.public_key_path must be empty when access.jwt.algorithm is %q", algorithm)
+		}
+	case "RS256":
+		if strings.TrimSpace(cfg.SecretEnv) != "" {
+			return fmt.Errorf("access.jwt.secret_env must be empty when access.jwt.algorithm is %q", algorithm)
+		}
+		if strings.TrimSpace(cfg.PublicKeyPath) == "" {
+			return fmt.Errorf("access.jwt.public_key_path must not be empty when access.jwt.algorithm is %q", algorithm)
+		}
+	default:
+		return fmt.Errorf("unsupported access.jwt.algorithm %q (supported: HS256, RS256)", cfg.Algorithm)
+	}
+
+	if strings.TrimSpace(cfg.Issuer) == "" {
+		return fmt.Errorf("access.jwt.issuer must not be empty")
+	}
+	if strings.TrimSpace(cfg.Audience) == "" {
+		return fmt.Errorf("access.jwt.audience must not be empty")
+	}
+	if strings.TrimSpace(cfg.SubjectClaim) == "" && cfg.SubjectClaim != "" {
+		return fmt.Errorf("access.jwt.subject_claim must not be blank")
+	}
+	if strings.TrimSpace(cfg.RolesClaim) == "" && cfg.RolesClaim != "" {
+		return fmt.Errorf("access.jwt.roles_claim must not be blank")
+	}
+	if len(cfg.RoleBindings) == 0 {
+		return fmt.Errorf("access.jwt.role_bindings must contain at least one entry")
+	}
+
+	bindings := make(map[string]struct{}, len(cfg.RoleBindings))
+	for index, binding := range cfg.RoleBindings {
+		claimValue := strings.TrimSpace(binding.ClaimValue)
+		if claimValue == "" {
+			return fmt.Errorf("access.jwt.role_bindings[%d].claim_value must not be empty", index)
+		}
+		if _, duplicate := bindings[claimValue]; duplicate {
+			return fmt.Errorf("access.jwt.role_bindings[%d].claim_value %q is duplicated", index, binding.ClaimValue)
+		}
+		bindings[claimValue] = struct{}{}
+		if len(binding.Roles) == 0 {
+			return fmt.Errorf("access.jwt.role_bindings[%d].roles must contain at least one role", index)
+		}
+		roles := make(map[access.Role]struct{}, len(binding.Roles))
+		for _, role := range binding.Roles {
+			if !access.IsSupportedRole(role) {
+				return fmt.Errorf("access.jwt.role_bindings[%d] has unsupported role %q", index, role)
+			}
+			if _, duplicate := roles[role]; duplicate {
+				return fmt.Errorf("access.jwt.role_bindings[%d] has duplicate role %q", index, role)
+			}
+			roles[role] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+func isZeroJWTConfig(cfg AccessJWTConfig) bool {
+	return strings.TrimSpace(cfg.Algorithm) == "" &&
+		strings.TrimSpace(cfg.Issuer) == "" &&
+		strings.TrimSpace(cfg.Audience) == "" &&
+		strings.TrimSpace(cfg.SubjectClaim) == "" &&
+		strings.TrimSpace(cfg.RolesClaim) == "" &&
+		strings.TrimSpace(cfg.SecretEnv) == "" &&
+		strings.TrimSpace(cfg.PublicKeyPath) == "" &&
+		len(cfg.RoleBindings) == 0
 }
 
 func validEnvironmentName(name string) bool {

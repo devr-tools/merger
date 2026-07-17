@@ -56,9 +56,50 @@ access:
 	}
 }
 
+func TestLoadJWTAccessConfiguration(t *testing.T) {
+	configPath := writeConfig(t, `
+access:
+  mode: jwt
+  jwt:
+    algorithm: HS256
+    issuer: https://auth.example.test
+    audience: merger-controlplane
+    secret_env: MERGER_JWT_SECRET
+    roles_claim: scope
+    role_bindings:
+      - claim_value: merger.read
+        roles: [reader]
+      - claim_value: merger.write
+        roles: [evidence_writer]
+`)
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Access.Mode != config.AccessModeJWT {
+		t.Fatalf("expected jwt access mode, got %q", cfg.Access.Mode)
+	}
+	if cfg.Access.JWT.Algorithm != "HS256" || cfg.Access.JWT.SecretEnv != "MERGER_JWT_SECRET" {
+		t.Fatalf("unexpected jwt config: %#v", cfg.Access.JWT)
+	}
+	if len(cfg.Access.JWT.RoleBindings) != 2 || cfg.Access.JWT.RoleBindings[1].Roles[0] != access.RoleEvidenceWriter {
+		t.Fatalf("unexpected jwt bindings: %#v", cfg.Access.JWT.RoleBindings)
+	}
+}
+
 func TestValidateRejectsInvalidAccessConfiguration(t *testing.T) {
 	validToken := config.AccessTokenConfig{
 		Subject: "ci", TokenEnv: "MERGER_CI_TOKEN", Roles: []access.Role{access.RoleEvidenceWriter},
+	}
+	validJWT := config.AccessJWTConfig{
+		Algorithm: "HS256",
+		Issuer:    "https://auth.example.test",
+		Audience:  "merger-controlplane",
+		SecretEnv: "MERGER_JWT_SECRET",
+		RoleBindings: []config.AccessJWTBindingConfig{
+			{ClaimValue: "merger.read", Roles: []access.Role{access.RoleReader}},
+		},
 	}
 	tests := []struct {
 		name    string
@@ -79,6 +120,11 @@ func TestValidateRejectsInvalidAccessConfiguration(t *testing.T) {
 			name:    "static without tokens",
 			access:  config.AccessConfig{Mode: config.AccessModeStaticToken},
 			wantErr: "at least one entry",
+		},
+		{
+			name:    "static with jwt",
+			access:  config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{validToken}, JWT: validJWT},
+			wantErr: "access.jwt must be empty",
 		},
 		{
 			name: "duplicate subject",
@@ -116,6 +162,45 @@ func TestValidateRejectsInvalidAccessConfiguration(t *testing.T) {
 				{Subject: "ci", TokenEnv: "MERGER_CI_TOKEN"},
 			}},
 			wantErr: "at least one role",
+		},
+		{
+			name:    "jwt with tokens",
+			access:  config.AccessConfig{Mode: config.AccessModeJWT, Tokens: []config.AccessTokenConfig{validToken}, JWT: validJWT},
+			wantErr: "access.tokens must be empty",
+		},
+		{
+			name:    "jwt missing issuer",
+			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "HS256", Audience: "merger-controlplane", SecretEnv: "MERGER_JWT_SECRET", RoleBindings: validJWT.RoleBindings}},
+			wantErr: "access.jwt.issuer",
+		},
+		{
+			name:    "jwt unsupported algorithm",
+			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "ES256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings, PublicKeyPath: "/tmp/key.pem"}},
+			wantErr: "unsupported access.jwt.algorithm",
+		},
+		{
+			name:    "jwt hs256 missing secret env",
+			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "HS256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings}},
+			wantErr: "secret_env",
+		},
+		{
+			name:    "jwt rs256 missing public key path",
+			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "RS256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings}},
+			wantErr: "public_key_path",
+		},
+		{
+			name: "jwt duplicate claim binding",
+			access: config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{
+				Algorithm: "HS256",
+				Issuer:    validJWT.Issuer,
+				Audience:  validJWT.Audience,
+				SecretEnv: "MERGER_JWT_SECRET",
+				RoleBindings: []config.AccessJWTBindingConfig{
+					{ClaimValue: "merger.read", Roles: []access.Role{access.RoleReader}},
+					{ClaimValue: "merger.read", Roles: []access.Role{access.RoleEvidenceWriter}},
+				},
+			}},
+			wantErr: "claim_value",
 		},
 	}
 
@@ -241,6 +326,19 @@ func TestValidateForControlPlaneRejectsDisabledProductionAccess(t *testing.T) {
 	}}}
 	if err := config.ValidateForControlPlane(cfg); err != nil {
 		t.Fatalf("expected production static-token access to be valid, got %v", err)
+	}
+
+	cfg.Access = config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{
+		Algorithm: "HS256",
+		Issuer:    "https://auth.example.test",
+		Audience:  "merger-controlplane",
+		SecretEnv: "MERGER_JWT_SECRET",
+		RoleBindings: []config.AccessJWTBindingConfig{
+			{ClaimValue: "merger.admin", Roles: []access.Role{access.RoleAdmin}},
+		},
+	}}
+	if err := config.ValidateForControlPlane(cfg); err != nil {
+		t.Fatalf("expected production jwt access to be valid, got %v", err)
 	}
 }
 

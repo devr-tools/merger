@@ -84,6 +84,24 @@ func buildAuthenticator(cfg config.AccessConfig) (access.Authenticator, error) {
 			})
 		}
 		return access.NewStaticTokenAuthenticator(tokens)
+	case config.AccessModeJWT:
+		bindings := make([]access.JWTClaimBinding, 0, len(cfg.JWT.RoleBindings))
+		for _, binding := range cfg.JWT.RoleBindings {
+			bindings = append(bindings, access.JWTClaimBinding{
+				ClaimValue: binding.ClaimValue,
+				Roles:      binding.Roles,
+			})
+		}
+		return access.NewJWTAuthenticator(access.JWTConfig{
+			Algorithm:     cfg.JWT.Algorithm,
+			Issuer:        cfg.JWT.Issuer,
+			Audience:      cfg.JWT.Audience,
+			SubjectClaim:  cfg.JWT.SubjectClaim,
+			RolesClaim:    cfg.JWT.RolesClaim,
+			SecretEnv:     cfg.JWT.SecretEnv,
+			PublicKeyPath: cfg.JWT.PublicKeyPath,
+			RoleBindings:  bindings,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported access mode %q", cfg.Mode)
 	}

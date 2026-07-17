@@ -177,8 +177,10 @@ Default ports:
 ### Control-plane authentication
 
 Local development defaults to `access.mode: disabled`. For a deployed control
-plane, configure environment-backed bearer tokens and grant the minimum role
-needed by each caller:
+plane, either configure environment-backed bearer tokens or validate signed
+JWTs from your auth gateway or identity provider.
+
+Static token mode:
 
 ```yaml
 access:
@@ -195,6 +197,29 @@ access:
 Set the referenced environment variables on the control-plane process. Merger
 stores only token digests in memory. Production configuration validation rejects
 disabled access.
+
+JWT mode:
+
+```yaml
+access:
+  mode: jwt
+  jwt:
+    algorithm: HS256
+    issuer: https://auth.example.test
+    audience: merger-controlplane
+    secret_env: MERGER_CONTROLPLANE_JWT_SECRET
+    roles_claim: scope
+    role_bindings:
+      - claim_value: merger.read
+        roles: [reader]
+      - claim_value: merger.write
+        roles: [evidence_writer]
+```
+
+For asymmetric signing, use `algorithm: RS256` and `public_key_path` instead of
+`secret_env`. Merger validates issuer, audience, expiry, and signature, then
+maps claim values to Merger roles. `subject_claim` defaults to `sub`, and
+`roles_claim` defaults to `roles` when omitted.
 
 Tear the stack down with `make compose-down`.
 

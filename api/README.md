@@ -32,7 +32,9 @@ as HTTP.
 
 ## Authentication and roles
 
-Configure environment-backed bearer tokens; token values never appear in YAML:
+Configure either environment-backed bearer tokens or signed JWTs.
+
+Static tokens keep token values out of YAML:
 
 ```yaml
 access:
@@ -53,6 +55,32 @@ HTTP clients send `Authorization: Bearer <token>`. gRPC clients send the same
 value in `authorization` metadata. `reader` permits Change Packet queries,
 `evidence_writer` permits evidence updates, and `admin` permits both. The
 `/healthz` HTTP endpoint remains public.
+
+JWT mode verifies signed bearer tokens from an upstream identity provider or
+auth gateway. Merger validates issuer, audience, expiry, and signature, then
+maps configured claim values to Merger roles:
+
+```yaml
+access:
+  mode: jwt
+  jwt:
+    algorithm: RS256
+    issuer: https://auth.example.com
+    audience: merger-controlplane
+    public_key_path: ./secrets/controlplane-jwt-public.pem
+    roles_claim: groups
+    role_bindings:
+      - claim_value: merger.read
+        roles: [reader]
+      - claim_value: merger.write
+        roles: [evidence_writer]
+      - claim_value: merger.admin
+        roles: [admin]
+```
+
+For HMAC-signed tokens, replace `public_key_path` with `secret_env`. If
+`subject_claim` or `roles_claim` are omitted, Merger defaults them to `sub`
+and `roles`.
 
 `access.mode: disabled` supplies a local administrator for development. Service
 startup rejects disabled access when `telemetry.environment` is `prod` or

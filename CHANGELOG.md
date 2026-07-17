@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/devr-tools/merger/compare/v1.0.0...v1.1.0) (2026-07-17)
+
+
+### Features
+
+* authenticate control plane and reconcile evidence ([f18b9e7](https://github.com/devr-tools/merger/commit/f18b9e722614bf528edde17e303dcf98bfcb49ee))
+* harden analysis and improve change feedback ([17866b2](https://github.com/devr-tools/merger/commit/17866b2de37549336c5040acaa79e37c0ea42c2a))
+* support jwt control-plane authentication ([b6d522f](https://github.com/devr-tools/merger/commit/b6d522fe71822985e0f295f6a195d0a95980e327))
+* validate policies and guard evidence updates ([40163a1](https://github.com/devr-tools/merger/commit/40163a1a806da1053aa443b1e475b3cc9cb84cd7))
+
+
+### Bug Fixes
+
+* align ci with latest codeguard ([4d30fa3](https://github.com/devr-tools/merger/commit/4d30fa39d85bb13ca9ef5848d0bc2eac750e6654))
+
 ## [1.0.0](https://github.com/devr-tools/merger/compare/v0.1.0...v1.0.0) (2026-07-10)
 
 

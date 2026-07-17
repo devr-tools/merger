@@ -29,7 +29,11 @@ type ChangePacketView struct {
 	Evidence []domain.EvidenceExecution `json:"evidence"`
 }
 
-func NewService(repository store.Repository, options ...Option) *Service {
+func NewService(repository store.Repository) *Service {
+	return NewServiceWithOptions(repository)
+}
+
+func NewServiceWithOptions(repository store.Repository, options ...Option) *Service {
 	service := &Service{repository: repository}
 	for _, option := range options {
 		if option != nil {

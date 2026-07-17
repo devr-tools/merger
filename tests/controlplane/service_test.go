@@ -97,7 +97,7 @@ func TestServiceReconcilesEvidenceDecisionLaneAndCheck(t *testing.T) {
 	repo := reconciliationRepository(t, nil)
 	assigner := &stubLaneAssigner{lane: domain.MergeLaneGreen}
 	publisher := &stubEvidencePublisher{}
-	service := controlplane.NewService(
+	service := controlplane.NewServiceWithOptions(
 		repo,
 		controlplane.WithLaneAssigner(assigner),
 		controlplane.WithCheckPublisher(publisher),

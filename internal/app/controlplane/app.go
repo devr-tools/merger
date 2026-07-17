@@ -30,13 +30,22 @@ func New(
 	logger *telemetry.Logger,
 	bus events.Bus,
 	repository store.Repository,
+) *App {
+	return NewWithAccess(cfg, logger, bus, repository, access.NewDisabledAuthenticator())
+}
+
+func NewWithAccess(
+	cfg config.Config,
+	logger *telemetry.Logger,
+	bus events.Bus,
+	repository store.Repository,
 	authenticator access.Authenticator,
 	serviceOptions ...controlplane.Option,
 ) *App {
 	if authenticator == nil {
 		panic("control-plane authenticator is required")
 	}
-	service := controlplane.NewService(repository, serviceOptions...)
+	service := controlplane.NewServiceWithOptions(repository, serviceOptions...)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

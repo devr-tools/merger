@@ -53,7 +53,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	app := controlplaneapp.New(
+	app := controlplaneapp.NewWithAccess(
 		cfg,
 		logger,
 		bus,

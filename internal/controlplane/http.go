@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -73,13 +74,13 @@ func (h *HTTPHandler) handleChangePacketByID(w http.ResponseWriter, r *http.Requ
 func (h *HTTPHandler) listChangePackets(w http.ResponseWriter, r *http.Request) {
 	limit, err := parseListLimit(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeLoggedHTTPError(w, r, http.StatusBadRequest, "invalid limit parameter", err)
 		return
 	}
 
 	packets, err := h.service.ListChangePackets(r.Context(), limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeLoggedHTTPError(w, r, http.StatusInternalServerError, "internal server error", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": packets})
@@ -88,7 +89,7 @@ func (h *HTTPHandler) listChangePackets(w http.ResponseWriter, r *http.Request) 
 func (h *HTTPHandler) getChangePacket(w http.ResponseWriter, r *http.Request, id string) {
 	view, err := h.service.GetChangePacket(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), statusForError(err))
+		writeLoggedHTTPError(w, r, statusForError(err), publicErrorMessage(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -106,14 +107,14 @@ func (h *HTTPHandler) updateEvidenceExecution(w http.ResponseWriter, r *http.Req
 	r.Body = http.MaxBytesReader(w, r.Body, maxEvidenceRequestBodySize)
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&request); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeLoggedHTTPError(w, r, http.StatusBadRequest, "invalid request body", err)
 		return
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		if err == nil {
 			err = errors.New("request body must contain a single JSON value")
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeLoggedHTTPError(w, r, http.StatusBadRequest, "invalid request body", err)
 		return
 	}
 
@@ -129,7 +130,7 @@ func (h *HTTPHandler) updateEvidenceExecution(w http.ResponseWriter, r *http.Req
 	}
 	execution, err := h.service.UpdateEvidenceExecution(r.Context(), execution)
 	if err != nil {
-		http.Error(w, err.Error(), statusForError(err))
+		writeLoggedHTTPError(w, r, statusForError(err), publicErrorMessage(err), err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, execution)
@@ -165,6 +166,13 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
+func writeLoggedHTTPError(w http.ResponseWriter, r *http.Request, status int, message string, err error) {
+	if err != nil {
+		log.Printf("controlplane http error: method=%s path=%s status=%d err=%v", r.Method, r.URL.Path, status, err)
+	}
+	http.Error(w, message, status)
+}
+
 func statusForError(err error) int {
 	if errors.Is(err, store.ErrChangePacketNotFound) {
 		return http.StatusNotFound
@@ -182,4 +190,23 @@ func statusForError(err error) int {
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
+}
+
+func publicErrorMessage(err error) string {
+	if errors.Is(err, store.ErrChangePacketNotFound) {
+		return "change packet not found"
+	}
+	var validationError *EvidenceValidationError
+	if errors.As(err, &validationError) {
+		return validationError.Error()
+	}
+	var notFoundError *EvidenceNotFoundError
+	if errors.As(err, &notFoundError) {
+		return notFoundError.Error()
+	}
+	var transitionError *EvidenceTransitionError
+	if errors.As(err, &transitionError) {
+		return transitionError.Error()
+	}
+	return "internal server error"
 }

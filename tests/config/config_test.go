@@ -89,6 +89,25 @@ access:
 }
 
 func TestValidateRejectsInvalidAccessConfiguration(t *testing.T) {
+	for _, test := range invalidAccessConfigTests() {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.Access = test.access
+			err := config.Validate(cfg)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", test.wantErr, err)
+			}
+		})
+	}
+}
+
+type invalidAccessConfigTest struct {
+	name    string
+	access  config.AccessConfig
+	wantErr string
+}
+
+func invalidAccessConfigTests() []invalidAccessConfigTest {
 	validToken := config.AccessTokenConfig{
 		Subject: "ci", TokenEnv: "MERGER_CI_TOKEN", Roles: []access.Role{access.RoleEvidenceWriter},
 	}
@@ -101,118 +120,23 @@ func TestValidateRejectsInvalidAccessConfiguration(t *testing.T) {
 			{ClaimValue: "merger.read", Roles: []access.Role{access.RoleReader}},
 		},
 	}
-	tests := []struct {
-		name    string
-		access  config.AccessConfig
-		wantErr string
-	}{
-		{
-			name:    "unsupported mode",
-			access:  config.AccessConfig{Mode: "oauth"},
-			wantErr: "unsupported access mode",
-		},
-		{
-			name:    "disabled with tokens",
-			access:  config.AccessConfig{Mode: config.AccessModeDisabled, Tokens: []config.AccessTokenConfig{validToken}},
-			wantErr: "must be empty",
-		},
-		{
-			name:    "static without tokens",
-			access:  config.AccessConfig{Mode: config.AccessModeStaticToken},
-			wantErr: "at least one entry",
-		},
-		{
-			name:    "static with jwt",
-			access:  config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{validToken}, JWT: validJWT},
-			wantErr: "access.jwt must be empty",
-		},
-		{
-			name: "duplicate subject",
-			access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{
-				validToken,
-				{Subject: "CI", TokenEnv: "MERGER_OTHER_TOKEN", Roles: []access.Role{access.RoleReader}},
-			}},
-			wantErr: "subject \"CI\" is duplicated",
-		},
-		{
-			name: "duplicate environment",
-			access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{
-				validToken,
-				{Subject: "dashboard", TokenEnv: "MERGER_CI_TOKEN", Roles: []access.Role{access.RoleReader}},
-			}},
-			wantErr: "environment variable \"MERGER_CI_TOKEN\" is duplicated",
-		},
-		{
-			name: "invalid environment",
-			access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{
-				{Subject: "ci", TokenEnv: "1-BAD", Roles: []access.Role{access.RoleReader}},
-			}},
-			wantErr: "not a valid environment variable name",
-		},
-		{
-			name: "unsupported role",
-			access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{
-				{Subject: "ci", TokenEnv: "MERGER_CI_TOKEN", Roles: []access.Role{"owner"}},
-			}},
-			wantErr: "unsupported role",
-		},
-		{
-			name: "empty roles",
-			access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{
-				{Subject: "ci", TokenEnv: "MERGER_CI_TOKEN"},
-			}},
-			wantErr: "at least one role",
-		},
-		{
-			name:    "jwt with tokens",
-			access:  config.AccessConfig{Mode: config.AccessModeJWT, Tokens: []config.AccessTokenConfig{validToken}, JWT: validJWT},
-			wantErr: "access.tokens must be empty",
-		},
-		{
-			name:    "jwt missing issuer",
-			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "HS256", Audience: "merger-controlplane", SecretEnv: "MERGER_JWT_SECRET", RoleBindings: validJWT.RoleBindings}},
-			wantErr: "access.jwt.issuer",
-		},
-		{
-			name:    "jwt unsupported algorithm",
-			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "ES256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings, PublicKeyPath: "/tmp/key.pem"}},
-			wantErr: "unsupported access.jwt.algorithm",
-		},
-		{
-			name:    "jwt hs256 missing secret env",
-			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "HS256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings}},
-			wantErr: "secret_env",
-		},
-		{
-			name:    "jwt rs256 missing public key path",
-			access:  config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "RS256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings}},
-			wantErr: "public_key_path",
-		},
-		{
-			name: "jwt duplicate claim binding",
-			access: config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{
-				Algorithm: "HS256",
-				Issuer:    validJWT.Issuer,
-				Audience:  validJWT.Audience,
-				SecretEnv: "MERGER_JWT_SECRET",
-				RoleBindings: []config.AccessJWTBindingConfig{
-					{ClaimValue: "merger.read", Roles: []access.Role{access.RoleReader}},
-					{ClaimValue: "merger.read", Roles: []access.Role{access.RoleEvidenceWriter}},
-				},
-			}},
-			wantErr: "claim_value",
-		},
-	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := config.Defaults()
-			cfg.Access = test.access
-			err := config.Validate(cfg)
-			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Fatalf("expected error containing %q, got %v", test.wantErr, err)
-			}
-		})
+	return []invalidAccessConfigTest{
+		{name: "unsupported mode", access: config.AccessConfig{Mode: "oauth"}, wantErr: "unsupported access mode"},
+		{name: "disabled with tokens", access: config.AccessConfig{Mode: config.AccessModeDisabled, Tokens: []config.AccessTokenConfig{validToken}}, wantErr: "must be empty"},
+		{name: "static without tokens", access: config.AccessConfig{Mode: config.AccessModeStaticToken}, wantErr: "at least one entry"},
+		{name: "static with jwt", access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{validToken}, JWT: validJWT}, wantErr: "access.jwt must be empty"},
+		{name: "duplicate subject", access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{validToken, {Subject: "CI", TokenEnv: "MERGER_OTHER_TOKEN", Roles: []access.Role{access.RoleReader}}}}, wantErr: "subject \"CI\" is duplicated"},
+		{name: "duplicate environment", access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{validToken, {Subject: "dashboard", TokenEnv: "MERGER_CI_TOKEN", Roles: []access.Role{access.RoleReader}}}}, wantErr: "environment variable \"MERGER_CI_TOKEN\" is duplicated"},
+		{name: "invalid environment", access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{{Subject: "ci", TokenEnv: "1-BAD", Roles: []access.Role{access.RoleReader}}}}, wantErr: "not a valid environment variable name"},
+		{name: "unsupported role", access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{{Subject: "ci", TokenEnv: "MERGER_CI_TOKEN", Roles: []access.Role{"owner"}}}}, wantErr: "unsupported role"},
+		{name: "empty roles", access: config.AccessConfig{Mode: config.AccessModeStaticToken, Tokens: []config.AccessTokenConfig{{Subject: "ci", TokenEnv: "MERGER_CI_TOKEN"}}}, wantErr: "at least one role"},
+		{name: "jwt with tokens", access: config.AccessConfig{Mode: config.AccessModeJWT, Tokens: []config.AccessTokenConfig{validToken}, JWT: validJWT}, wantErr: "access.tokens must be empty"},
+		{name: "jwt missing issuer", access: config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "HS256", Audience: "merger-controlplane", SecretEnv: "MERGER_JWT_SECRET", RoleBindings: validJWT.RoleBindings}}, wantErr: "access.jwt.issuer"},
+		{name: "jwt unsupported algorithm", access: config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "ES256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings, PublicKeyPath: "/tmp/key.pem"}}, wantErr: "unsupported access.jwt.algorithm"},
+		{name: "jwt hs256 missing secret env", access: config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "HS256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings}}, wantErr: "secret_env"},
+		{name: "jwt rs256 missing public key path", access: config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "RS256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, RoleBindings: validJWT.RoleBindings}}, wantErr: "public_key_path"},
+		{name: "jwt duplicate claim binding", access: config.AccessConfig{Mode: config.AccessModeJWT, JWT: config.AccessJWTConfig{Algorithm: "HS256", Issuer: validJWT.Issuer, Audience: validJWT.Audience, SecretEnv: "MERGER_JWT_SECRET", RoleBindings: []config.AccessJWTBindingConfig{{ClaimValue: "merger.read", Roles: []access.Role{access.RoleReader}}, {ClaimValue: "merger.read", Roles: []access.Role{access.RoleEvidenceWriter}}}}}, wantErr: "claim_value"},
 	}
 }
 

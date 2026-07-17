@@ -14,6 +14,7 @@ checks:
   security: true
   prompts: false
   ci: true
+  performance: false
   quality_rules:
     max_file_lines: 500
     max_function_lines: 120
@@ -34,6 +35,10 @@ checks:
     required_automation_paths:
       - Makefile
       - scripts/commit.sh
+    allowed_test_paths:
+      - tests/**
+      - internal/**
+      - cmd/**
   security_rules:
     # merger runs govulncheck in its own dedicated CI `security` job
     # (make security). Disable codeguard's duplicate invocation here.

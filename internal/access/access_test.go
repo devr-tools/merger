@@ -65,14 +65,14 @@ func TestStaticTokenAuthenticatorRejectsInvalidBearerCredentials(t *testing.T) {
 }
 
 func TestStaticTokenAuthenticatorFailsClosedForMissingEnvironmentSecret(t *testing.T) {
-	const secret = "must-not-appear"
+	const probe = "placeholder-probe"
 	_, err := access.NewStaticTokenAuthenticator([]access.StaticToken{{
 		Subject: "client", TokenEnv: "MERGER_MISSING_TOKEN", Roles: []access.Role{access.RoleReader},
 	}})
 	if err == nil || !strings.Contains(err.Error(), "MERGER_MISSING_TOKEN") {
 		t.Fatalf("expected missing environment error, got %v", err)
 	}
-	if strings.Contains(err.Error(), secret) {
+	if strings.Contains(err.Error(), probe) {
 		t.Fatalf("error exposed a token value: %v", err)
 	}
 }
@@ -83,7 +83,10 @@ func TestContextAndAuthorization(t *testing.T) {
 	roles[0] = access.RoleAdmin
 
 	principal, ok := access.PrincipalFromContext(ctx)
-	if !ok || principal.HasRole(access.RoleAdmin) {
+	if !ok {
+		t.Fatal("expected context principal")
+	}
+	if principal.HasRole(access.RoleAdmin) {
 		t.Fatalf("expected context to retain a defensive role copy, got %#v", principal)
 	}
 	principal.Roles[0] = access.RoleAdmin

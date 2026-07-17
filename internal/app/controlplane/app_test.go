@@ -32,7 +32,7 @@ func TestNewWiresTransportAccess(t *testing.T) {
 		t.Fatalf("construct authenticator: %v", err)
 	}
 
-	app := New(
+	app := NewWithAccess(
 		config.Defaults(),
 		telemetry.NewLogger("error"),
 		events.NewMemoryBus(),
@@ -93,7 +93,7 @@ func TestNewRequiresAuthenticator(t *testing.T) {
 		}
 	}()
 
-	New(
+	NewWithAccess(
 		config.Defaults(),
 		telemetry.NewLogger("error"),
 		events.NewMemoryBus(),

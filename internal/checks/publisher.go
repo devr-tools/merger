@@ -75,78 +75,107 @@ func buildCheckSummary(packet domain.ChangePacket, executions []domain.EvidenceE
 	fmt.Fprintln(&summary, "| --- | ---: | --- |")
 	fmt.Fprintf(&summary, "| **%s** | %d (%s) | %s |\n", packet.MergeLane, packet.RiskSummary.Score, packet.RiskSummary.Severity, packet.Decision.Status)
 
-	if packet.Decision.Summary != "" {
-		fmt.Fprintf(&summary, "\n**Why:** %s\n", packet.Decision.Summary)
-	}
-	if len(packet.Decision.AppliedPolicies) > 0 {
-		fmt.Fprintf(&summary, "\n**Applied policies:** %s\n", strings.Join(packet.Decision.AppliedPolicies, ", "))
-	}
-
-	if len(packet.Mutations) > 0 {
-		fmt.Fprintln(&summary, "\n### Detected mutations")
-		for _, mutation := range packet.Mutations {
-			fmt.Fprintf(&summary, "- **%s** `%s` — %s\n", mutation.Severity, mutation.Kind, mutation.Title)
-		}
-	}
-
-	if len(packet.Risks) > 0 {
-		fmt.Fprintln(&summary, "\n### Risk and mitigation")
-		for _, risk := range packet.Risks {
-			fmt.Fprintf(&summary, "- **%s (+%d):** %s\n", risk.Type, risk.Score, risk.Summary)
-			for _, mitigation := range risk.Mitigations {
-				fmt.Fprintf(&summary, "  - %s\n", mitigation)
-			}
-		}
-	}
-
-	if len(packet.Reviewers) > 0 {
-		fmt.Fprintln(&summary, "\n### Required reviewers")
-		for _, reviewer := range packet.Reviewers {
-			marker := "recommended"
-			if reviewer.Mandatory {
-				marker = "required"
-			}
-			fmt.Fprintf(&summary, "- `%s` (%s): %s\n", reviewer.Team, marker, reviewer.Reason)
-		}
-	}
-
-	if len(packet.Evidence) > 0 {
-		fmt.Fprintln(&summary, "\n### Evidence checklist")
-		statusByName := evidenceStatuses(executions)
-		for _, evidence := range packet.Evidence {
-			requirement := "optional"
-			if evidence.Required {
-				requirement = "required"
-			}
-			status := statusByName[evidence.Name]
-			if status == "" {
-				status = domain.EvidencePending
-			}
-			marker := " "
-			if status == domain.EvidenceSatisfied || status == domain.EvidenceWaived {
-				marker = "x"
-			}
-			fmt.Fprintf(&summary, "- [%s] `%s` (%s) — **%s**", marker, evidence.Name, requirement, status)
-			if evidence.Reason != "" {
-				fmt.Fprintf(&summary, ": %s", evidence.Reason)
-			}
-			fmt.Fprintln(&summary)
-		}
-	}
-
-	fmt.Fprintln(&summary, "\n### Deployment guidance")
-	fmt.Fprintf(&summary, "- Strategy: **%s**\n", packet.Deployment.Strategy)
-	if packet.Deployment.RequiresCanary {
-		fmt.Fprintln(&summary, "- Canary rollout required")
-	}
-	if packet.Deployment.RequiresRollbackPlan {
-		fmt.Fprintln(&summary, "- Rollback plan required")
-	}
-	if len(packet.Deployment.Environments) > 0 {
-		fmt.Fprintf(&summary, "- Environments: %s\n", strings.Join(packet.Deployment.Environments, ", "))
-	}
+	writeDecisionSummary(&summary, packet)
+	writeMutationsSummary(&summary, packet)
+	writeRiskSummary(&summary, packet)
+	writeReviewerSummary(&summary, packet)
+	writeEvidenceSummary(&summary, packet, executions)
+	writeDeploymentSummary(&summary, packet)
 
 	return truncateSummary(summary.String(), 60000)
+}
+
+func writeDecisionSummary(summary *strings.Builder, packet domain.ChangePacket) {
+	if packet.Decision.Summary != "" {
+		fmt.Fprintf(summary, "\n**Why:** %s\n", packet.Decision.Summary)
+	}
+	if len(packet.Decision.AppliedPolicies) > 0 {
+		fmt.Fprintf(summary, "\n**Applied policies:** %s\n", strings.Join(packet.Decision.AppliedPolicies, ", "))
+	}
+}
+
+func writeMutationsSummary(summary *strings.Builder, packet domain.ChangePacket) {
+	if len(packet.Mutations) == 0 {
+		return
+	}
+	fmt.Fprintln(summary, "\n### Detected mutations")
+	for _, mutation := range packet.Mutations {
+		fmt.Fprintf(summary, "- **%s** `%s` — %s\n", mutation.Severity, mutation.Kind, mutation.Title)
+	}
+}
+
+func writeRiskSummary(summary *strings.Builder, packet domain.ChangePacket) {
+	if len(packet.Risks) == 0 {
+		return
+	}
+	fmt.Fprintln(summary, "\n### Risk and mitigation")
+	for _, risk := range packet.Risks {
+		fmt.Fprintf(summary, "- **%s (+%d):** %s\n", risk.Type, risk.Score, risk.Summary)
+		for _, mitigation := range risk.Mitigations {
+			fmt.Fprintf(summary, "  - %s\n", mitigation)
+		}
+	}
+}
+
+func writeReviewerSummary(summary *strings.Builder, packet domain.ChangePacket) {
+	if len(packet.Reviewers) == 0 {
+		return
+	}
+	fmt.Fprintln(summary, "\n### Required reviewers")
+	for _, reviewer := range packet.Reviewers {
+		fmt.Fprintf(summary, "- `%s` (%s): %s\n", reviewer.Team, reviewerRequirement(reviewer), reviewer.Reason)
+	}
+}
+
+func reviewerRequirement(reviewer domain.ReviewerRequirement) string {
+	if reviewer.Mandatory {
+		return "required"
+	}
+	return "recommended"
+}
+
+func writeEvidenceSummary(summary *strings.Builder, packet domain.ChangePacket, executions []domain.EvidenceExecution) {
+	if len(packet.Evidence) == 0 {
+		return
+	}
+	fmt.Fprintln(summary, "\n### Evidence checklist")
+	statusByName := evidenceStatuses(executions)
+	for _, evidence := range packet.Evidence {
+		fmt.Fprintln(summary, evidenceSummaryLine(evidence, statusByName[evidence.Name]))
+	}
+}
+
+func evidenceSummaryLine(evidence domain.EvidenceRequirement, status domain.EvidenceStatus) string {
+	requirement := "optional"
+	if evidence.Required {
+		requirement = "required"
+	}
+	if status == "" {
+		status = domain.EvidencePending
+	}
+	marker := " "
+	if status == domain.EvidenceSatisfied || status == domain.EvidenceWaived {
+		marker = "x"
+	}
+	line := fmt.Sprintf("- [%s] `%s` (%s) — **%s**", marker, evidence.Name, requirement, status)
+	if evidence.Reason != "" {
+		line += ": " + evidence.Reason
+	}
+	return line
+}
+
+func writeDeploymentSummary(summary *strings.Builder, packet domain.ChangePacket) {
+	fmt.Fprintln(summary, "\n### Deployment guidance")
+	fmt.Fprintf(summary, "- Strategy: **%s**\n", packet.Deployment.Strategy)
+	if packet.Deployment.RequiresCanary {
+		fmt.Fprintln(summary, "- Canary rollout required")
+	}
+	if packet.Deployment.RequiresRollbackPlan {
+		fmt.Fprintln(summary, "- Rollback plan required")
+	}
+	if len(packet.Deployment.Environments) > 0 {
+		fmt.Fprintf(summary, "- Environments: %s\n", strings.Join(packet.Deployment.Environments, ", "))
+	}
 }
 
 func evidenceStatuses(executions []domain.EvidenceExecution) map[string]domain.EvidenceStatus {

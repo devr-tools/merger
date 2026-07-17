@@ -72,48 +72,66 @@ func validateRule(label string, rule RuleConfig) error {
 		return fmt.Errorf("%s must define at least one requirement or action", label)
 	}
 
-	for _, kind := range rule.When.Mutations {
+	if err := validateWhenClause(label, rule.When); err != nil {
+		return err
+	}
+	if err := validateRequirements(label, rule.Require); err != nil {
+		return err
+	}
+	if err := validateAction(label, rule.Action); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateWhenClause(label string, when WhenClause) error {
+	for _, kind := range when.Mutations {
 		if _, ok := supportedMutationKinds[kind]; !ok {
 			return fmt.Errorf("%s has unsupported mutation kind %q", label, kind)
 		}
 	}
-	for _, criticality := range rule.When.Criticalities {
+	for _, criticality := range when.Criticalities {
 		if _, ok := supportedCriticalities[criticality]; !ok {
 			return fmt.Errorf("%s has unsupported criticality %q", label, criticality)
 		}
 	}
-	if rule.When.RiskScoreGTE < 0 || rule.When.RiskScoreGTE > 100 {
+	if when.RiskScoreGTE < 0 || when.RiskScoreGTE > 100 {
 		return fmt.Errorf("%s risk_score_gte must be between 0 and 100", label)
 	}
+	if err := requireNonEmpty(label, "path", when.Paths); err != nil {
+		return err
+	}
+	return requireNonEmpty(label, "ownership team", when.OwnershipTeams)
+}
 
-	if err := requireNonEmpty(label, "path", rule.When.Paths); err != nil {
+func validateRequirements(label string, require RequirementClause) error {
+	if err := requireNonEmpty(label, "reviewer", require.Reviewers); err != nil {
 		return err
 	}
-	if err := requireNonEmpty(label, "ownership team", rule.When.OwnershipTeams); err != nil {
+	if err := requireNonEmpty(label, "evidence name", require.Evidence); err != nil {
 		return err
 	}
-	if err := requireNonEmpty(label, "reviewer", rule.Require.Reviewers); err != nil {
+	if err := requireNonEmpty(label, "deployment environment", require.Deployment.Environments); err != nil {
 		return err
 	}
-	if err := requireNonEmpty(label, "evidence name", rule.Require.Evidence); err != nil {
-		return err
+	strategy := require.Deployment.Strategy
+	if strategy == "" {
+		return nil
 	}
-	if err := requireNonEmpty(label, "deployment environment", rule.Require.Deployment.Environments); err != nil {
-		return err
+	if _, ok := supportedDeploymentStrategies[strategy]; !ok {
+		return fmt.Errorf("%s has unsupported deployment strategy %q", label, strategy)
 	}
+	return nil
+}
 
-	strategy := rule.Require.Deployment.Strategy
-	if strategy != "" {
-		if _, ok := supportedDeploymentStrategies[strategy]; !ok {
-			return fmt.Errorf("%s has unsupported deployment strategy %q", label, strategy)
-		}
+func validateAction(label string, action ActionClause) error {
+	lane := action.MinimumLane
+	if lane == "" {
+		return nil
 	}
-	if lane := rule.Action.MinimumLane; lane != "" {
-		if _, ok := supportedLanes[lane]; !ok {
-			return fmt.Errorf("%s has unsupported minimum lane %q", label, lane)
-		}
+	if _, ok := supportedLanes[lane]; !ok {
+		return fmt.Errorf("%s has unsupported minimum lane %q", label, lane)
 	}
-
 	return nil
 }
 

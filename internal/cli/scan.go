@@ -39,10 +39,9 @@ func runScan(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if *format != "text" && *format != "json" {
-		return ExitError{Code: 2, Message: fmt.Sprintf("unknown format %q (want text or json)", *format)}
+	if err := validateScanFormat(*format); err != nil {
+		return err
 	}
-
 	failLane, err := parseFailLane(*failOn)
 	if err != nil {
 		return ExitError{Code: 2, Message: err.Error()}
@@ -66,19 +65,34 @@ func runScan(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if *format == "json" {
+	if err := writeScanOutput(*format, *explain, *githubOutput, packet); err != nil {
+		return err
+	}
+	return enforceFailLane(failLane, packet)
+}
+
+func validateScanFormat(format string) error {
+	if format != "text" && format != "json" {
+		return ExitError{Code: 2, Message: fmt.Sprintf("unknown format %q (want text or json)", format)}
+	}
+	return nil
+}
+
+func writeScanOutput(format string, explain bool, githubOutput string, packet *domain.ChangePacket) error {
+	if format == "json" {
 		if err := writeJSON(os.Stdout, packet); err != nil {
 			return err
 		}
 	} else {
-		writeTextReport(os.Stdout, packet, *explain)
+		writeTextReport(os.Stdout, packet, explain)
 	}
-	if *githubOutput != "" {
-		if err := writeGitHubOutput(*githubOutput, packet); err != nil {
-			return err
-		}
+	if githubOutput != "" {
+		return writeGitHubOutput(githubOutput, packet)
 	}
+	return nil
+}
 
+func enforceFailLane(failLane domain.MergeLane, packet *domain.ChangePacket) error {
 	if failLane != "" && laneRank[packet.MergeLane] >= laneRank[failLane] {
 		return ExitError{Code: 2, Message: fmt.Sprintf("merge lane %s is at or above the -fail-on-lane threshold %s", packet.MergeLane, failLane)}
 	}

@@ -208,91 +208,115 @@ func Validate(cfg Config) error {
 func validateAccess(cfg AccessConfig) error {
 	switch cfg.Mode {
 	case AccessModeDisabled:
-		if len(cfg.Tokens) > 0 {
-			return fmt.Errorf("access tokens must be empty when access.mode is %q", AccessModeDisabled)
-		}
-		if !isZeroJWTConfig(cfg.JWT) {
-			return fmt.Errorf("access.jwt must be empty when access.mode is %q", AccessModeDisabled)
-		}
-		return nil
+		return validateDisabledAccess(cfg)
 	case AccessModeStaticToken:
-		if len(cfg.Tokens) == 0 {
-			return fmt.Errorf("access.tokens must contain at least one entry when access.mode is %q", AccessModeStaticToken)
-		}
-		if !isZeroJWTConfig(cfg.JWT) {
-			return fmt.Errorf("access.jwt must be empty when access.mode is %q", AccessModeStaticToken)
-		}
+		return validateStaticTokenAccess(cfg)
 	case AccessModeJWT:
-		if len(cfg.Tokens) > 0 {
-			return fmt.Errorf("access.tokens must be empty when access.mode is %q", AccessModeJWT)
-		}
-		return validateJWTAccess(cfg.JWT)
+		return validateJWTModeAccess(cfg)
 	default:
 		return fmt.Errorf("unsupported access mode %q (supported: disabled, static_token, jwt)", cfg.Mode)
 	}
-
-	subjects := make(map[string]struct{}, len(cfg.Tokens))
-	environments := make(map[string]struct{}, len(cfg.Tokens))
-	for index, token := range cfg.Tokens {
-		subject := strings.TrimSpace(token.Subject)
-		if subject == "" {
-			return fmt.Errorf("access.tokens[%d].subject must not be empty", index)
-		}
-		subjectKey := strings.ToLower(subject)
-		if _, duplicate := subjects[subjectKey]; duplicate {
-			return fmt.Errorf("access token subject %q is duplicated", subject)
-		}
-		subjects[subjectKey] = struct{}{}
-
-		tokenEnv := strings.TrimSpace(token.TokenEnv)
-		if !validEnvironmentName(tokenEnv) {
-			return fmt.Errorf("access.tokens[%d].token_env %q is not a valid environment variable name", index, token.TokenEnv)
-		}
-		if _, duplicate := environments[tokenEnv]; duplicate {
-			return fmt.Errorf("access token environment variable %q is duplicated", tokenEnv)
-		}
-		environments[tokenEnv] = struct{}{}
-
-		if len(token.Roles) == 0 {
-			return fmt.Errorf("access.tokens[%d].roles must contain at least one role", index)
-		}
-		roles := make(map[access.Role]struct{}, len(token.Roles))
-		for _, role := range token.Roles {
-			if !access.IsSupportedRole(role) {
-				return fmt.Errorf("access.tokens[%d] has unsupported role %q", index, role)
-			}
-			if _, duplicate := roles[role]; duplicate {
-				return fmt.Errorf("access.tokens[%d] has duplicate role %q", index, role)
-			}
-			roles[role] = struct{}{}
-		}
-	}
-
-	return nil
 }
 
 func validateJWTAccess(cfg AccessJWTConfig) error {
+	if _, err := validateJWTAlgorithm(cfg); err != nil {
+		return err
+	}
+	if err := validateJWTClaimsConfig(cfg); err != nil {
+		return err
+	}
+	if err := validateJWTBindings(cfg.RoleBindings); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateDisabledAccess(cfg AccessConfig) error {
+	if len(cfg.Tokens) > 0 {
+		return fmt.Errorf("access tokens must be empty when access.mode is %q", AccessModeDisabled)
+	}
+	if !isZeroJWTConfig(cfg.JWT) {
+		return fmt.Errorf("access.jwt must be empty when access.mode is %q", AccessModeDisabled)
+	}
+	return nil
+}
+
+func validateStaticTokenAccess(cfg AccessConfig) error {
+	if len(cfg.Tokens) == 0 {
+		return fmt.Errorf("access.tokens must contain at least one entry when access.mode is %q", AccessModeStaticToken)
+	}
+	if !isZeroJWTConfig(cfg.JWT) {
+		return fmt.Errorf("access.jwt must be empty when access.mode is %q", AccessModeStaticToken)
+	}
+	return validateAccessTokens(cfg.Tokens)
+}
+
+func validateJWTModeAccess(cfg AccessConfig) error {
+	if len(cfg.Tokens) > 0 {
+		return fmt.Errorf("access.tokens must be empty when access.mode is %q", AccessModeJWT)
+	}
+	return validateJWTAccess(cfg.JWT)
+}
+
+func validateAccessTokens(tokens []AccessTokenConfig) error {
+	subjects := make(map[string]struct{}, len(tokens))
+	environments := make(map[string]struct{}, len(tokens))
+	for index, token := range tokens {
+		if err := validateAccessToken(index, token, subjects, environments); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAccessToken(index int, token AccessTokenConfig, subjects, environments map[string]struct{}) error {
+	subject := strings.TrimSpace(token.Subject)
+	if subject == "" {
+		return fmt.Errorf("access.tokens[%d].subject must not be empty", index)
+	}
+	subjectKey := strings.ToLower(subject)
+	if _, duplicate := subjects[subjectKey]; duplicate {
+		return fmt.Errorf("access token subject %q is duplicated", subject)
+	}
+	subjects[subjectKey] = struct{}{}
+
+	tokenEnv := strings.TrimSpace(token.TokenEnv)
+	if !validEnvironmentName(tokenEnv) {
+		return fmt.Errorf("access.tokens[%d].token_env %q is not a valid environment variable name", index, token.TokenEnv)
+	}
+	if _, duplicate := environments[tokenEnv]; duplicate {
+		return fmt.Errorf("access token environment variable %q is duplicated", tokenEnv)
+	}
+	environments[tokenEnv] = struct{}{}
+
+	return validateRoleSet(token.Roles, fmt.Sprintf("access.tokens[%d]", index), "roles")
+}
+
+func validateJWTAlgorithm(cfg AccessJWTConfig) (string, error) {
 	algorithm := strings.ToUpper(strings.TrimSpace(cfg.Algorithm))
 	switch algorithm {
 	case "HS256":
 		secretEnv := strings.TrimSpace(cfg.SecretEnv)
 		if !validEnvironmentName(secretEnv) {
-			return fmt.Errorf("access.jwt.secret_env %q is not a valid environment variable name", cfg.SecretEnv)
+			return "", fmt.Errorf("access.jwt.secret_env %q is not a valid environment variable name", cfg.SecretEnv)
 		}
 		if strings.TrimSpace(cfg.PublicKeyPath) != "" {
-			return fmt.Errorf("access.jwt.public_key_path must be empty when access.jwt.algorithm is %q", algorithm)
+			return "", fmt.Errorf("access.jwt.public_key_path must be empty when access.jwt.algorithm is %q", algorithm)
 		}
 	case "RS256":
 		if strings.TrimSpace(cfg.SecretEnv) != "" {
-			return fmt.Errorf("access.jwt.secret_env must be empty when access.jwt.algorithm is %q", algorithm)
+			return "", fmt.Errorf("access.jwt.secret_env must be empty when access.jwt.algorithm is %q", algorithm)
 		}
 		if strings.TrimSpace(cfg.PublicKeyPath) == "" {
-			return fmt.Errorf("access.jwt.public_key_path must not be empty when access.jwt.algorithm is %q", algorithm)
+			return "", fmt.Errorf("access.jwt.public_key_path must not be empty when access.jwt.algorithm is %q", algorithm)
 		}
 	default:
-		return fmt.Errorf("unsupported access.jwt.algorithm %q (supported: HS256, RS256)", cfg.Algorithm)
+		return "", fmt.Errorf("unsupported access.jwt.algorithm %q (supported: HS256, RS256)", cfg.Algorithm)
 	}
+	return algorithm, nil
+}
 
+func validateJWTClaimsConfig(cfg AccessJWTConfig) error {
 	if strings.TrimSpace(cfg.Issuer) == "" {
 		return fmt.Errorf("access.jwt.issuer must not be empty")
 	}
@@ -308,32 +332,41 @@ func validateJWTAccess(cfg AccessJWTConfig) error {
 	if len(cfg.RoleBindings) == 0 {
 		return fmt.Errorf("access.jwt.role_bindings must contain at least one entry")
 	}
+	return nil
+}
 
-	bindings := make(map[string]struct{}, len(cfg.RoleBindings))
-	for index, binding := range cfg.RoleBindings {
+func validateJWTBindings(bindings []AccessJWTBindingConfig) error {
+	seen := make(map[string]struct{}, len(bindings))
+	for index, binding := range bindings {
 		claimValue := strings.TrimSpace(binding.ClaimValue)
 		if claimValue == "" {
 			return fmt.Errorf("access.jwt.role_bindings[%d].claim_value must not be empty", index)
 		}
-		if _, duplicate := bindings[claimValue]; duplicate {
+		if _, duplicate := seen[claimValue]; duplicate {
 			return fmt.Errorf("access.jwt.role_bindings[%d].claim_value %q is duplicated", index, binding.ClaimValue)
 		}
-		bindings[claimValue] = struct{}{}
-		if len(binding.Roles) == 0 {
-			return fmt.Errorf("access.jwt.role_bindings[%d].roles must contain at least one role", index)
-		}
-		roles := make(map[access.Role]struct{}, len(binding.Roles))
-		for _, role := range binding.Roles {
-			if !access.IsSupportedRole(role) {
-				return fmt.Errorf("access.jwt.role_bindings[%d] has unsupported role %q", index, role)
-			}
-			if _, duplicate := roles[role]; duplicate {
-				return fmt.Errorf("access.jwt.role_bindings[%d] has duplicate role %q", index, role)
-			}
-			roles[role] = struct{}{}
+		seen[claimValue] = struct{}{}
+		if err := validateRoleSet(binding.Roles, fmt.Sprintf("access.jwt.role_bindings[%d]", index), "roles"); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
+func validateRoleSet(roles []access.Role, label, field string) error {
+	if len(roles) == 0 {
+		return fmt.Errorf("%s.%s must contain at least one role", label, field)
+	}
+	seen := make(map[access.Role]struct{}, len(roles))
+	for _, role := range roles {
+		if !access.IsSupportedRole(role) {
+			return fmt.Errorf("%s has unsupported role %q", label, role)
+		}
+		if _, duplicate := seen[role]; duplicate {
+			return fmt.Errorf("%s has duplicate role %q", label, role)
+		}
+		seen[role] = struct{}{}
+	}
 	return nil
 }
 

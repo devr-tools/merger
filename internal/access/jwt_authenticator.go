@@ -216,71 +216,117 @@ func (a *JWTAuthenticator) Authenticate(authorization string) (Principal, error)
 		return Principal{}, err
 	}
 
-	signingInput := []byte(headerSegment + "." + claimsSegment)
-	signature, err := base64.RawURLEncoding.DecodeString(signatureSegment)
+	claims, err := a.verifiedClaims(headerSegment, claimsSegment, signatureSegment)
 	if err != nil {
-		return Principal{}, ErrUnauthenticated
-	}
-
-	headerJSON, err := base64.RawURLEncoding.DecodeString(headerSegment)
-	if err != nil {
-		return Principal{}, ErrUnauthenticated
-	}
-	var header struct {
-		Algorithm string `json:"alg"`
-	}
-	if err := json.Unmarshal(headerJSON, &header); err != nil {
-		return Principal{}, ErrUnauthenticated
-	}
-	if !strings.EqualFold(strings.TrimSpace(header.Algorithm), a.algorithm) {
-		return Principal{}, ErrUnauthenticated
-	}
-	if err := a.verifier.Verify(signingInput, signature); err != nil {
 		return Principal{}, err
-	}
-
-	claimsJSON, err := base64.RawURLEncoding.DecodeString(claimsSegment)
-	if err != nil {
-		return Principal{}, ErrUnauthenticated
-	}
-	claims, err := decodeJWTClaims(claimsJSON)
-	if err != nil {
-		return Principal{}, ErrUnauthenticated
 	}
 	if err := a.validateClaims(claims); err != nil {
 		return Principal{}, err
 	}
 
-	subject, ok := stringClaim(claims[a.subjectClaim])
-	if !ok {
-		return Principal{}, ErrUnauthenticated
-	}
-	subject = strings.TrimSpace(subject)
-	if subject == "" {
-		return Principal{}, ErrUnauthenticated
-	}
-
-	claimValues, err := claimValues(claims[a.rolesClaim])
+	subject, err := a.subjectFromClaims(claims)
 	if err != nil {
-		return Principal{}, ErrUnauthenticated
+		return Principal{}, err
 	}
 
-	roles := make([]Role, 0, len(claimValues))
-	seen := make(map[Role]struct{}, len(claimValues))
-	for _, value := range claimValues {
-		for _, role := range a.bindings[value] {
-			if _, duplicate := seen[role]; duplicate {
-				continue
-			}
-			seen[role] = struct{}{}
-			roles = append(roles, role)
-		}
+	roles, err := a.rolesFromClaims(claims)
+	if err != nil {
+		return Principal{}, err
 	}
 
 	return Principal{
 		Subject: subject,
 		Roles:   roles,
 	}, nil
+}
+
+func (a *JWTAuthenticator) verifiedClaims(headerSegment, claimsSegment, signatureSegment string) (map[string]any, error) {
+	signingInput := []byte(headerSegment + "." + claimsSegment)
+	signature, err := decodeJWTComponent(signatureSegment)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateJWTHeader(headerSegment, a.algorithm); err != nil {
+		return nil, err
+	}
+	if err := a.verifier.Verify(signingInput, signature); err != nil {
+		return nil, err
+	}
+	return decodeJWTClaimsSegment(claimsSegment)
+}
+
+func decodeJWTComponent(segment string) ([]byte, error) {
+	value, err := base64.RawURLEncoding.DecodeString(segment)
+	if err != nil {
+		return nil, ErrUnauthenticated
+	}
+	return value, nil
+}
+
+func validateJWTHeader(headerSegment, algorithm string) error {
+	headerJSON, err := decodeJWTComponent(headerSegment)
+	if err != nil {
+		return err
+	}
+	var header struct {
+		Algorithm string `json:"alg"`
+	}
+	if err := json.Unmarshal(headerJSON, &header); err != nil {
+		return ErrUnauthenticated
+	}
+	if !strings.EqualFold(strings.TrimSpace(header.Algorithm), algorithm) {
+		return ErrUnauthenticated
+	}
+	return nil
+}
+
+func decodeJWTClaimsSegment(claimsSegment string) (map[string]any, error) {
+	claimsJSON, err := decodeJWTComponent(claimsSegment)
+	if err != nil {
+		return nil, err
+	}
+	claims, err := decodeJWTClaims(claimsJSON)
+	if err != nil {
+		return nil, ErrUnauthenticated
+	}
+	return claims, nil
+}
+
+func (a *JWTAuthenticator) subjectFromClaims(claims map[string]any) (string, error) {
+	subject, ok := stringClaim(claims[a.subjectClaim])
+	if !ok {
+		return "", ErrUnauthenticated
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return "", ErrUnauthenticated
+	}
+	return subject, nil
+}
+
+func (a *JWTAuthenticator) rolesFromClaims(claims map[string]any) ([]Role, error) {
+	claimValues, err := claimValues(claims[a.rolesClaim])
+	if err != nil {
+		return nil, ErrUnauthenticated
+	}
+
+	roles := make([]Role, 0, len(claimValues))
+	seen := make(map[Role]struct{}, len(claimValues))
+	for _, value := range claimValues {
+		roles = appendBoundRoles(roles, seen, a.bindings[value])
+	}
+	return roles, nil
+}
+
+func appendBoundRoles(current []Role, seen map[Role]struct{}, bound []Role) []Role {
+	for _, role := range bound {
+		if _, duplicate := seen[role]; duplicate {
+			continue
+		}
+		seen[role] = struct{}{}
+		current = append(current, role)
+	}
+	return current
 }
 
 func splitJWT(token string) (string, string, string, error) {

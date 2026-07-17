@@ -7,11 +7,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/devr-tools/merger/internal/access"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
 	Service      ServiceConfig      `yaml:"service"`
+	Access       AccessConfig       `yaml:"access"`
 	Logging      LoggingConfig      `yaml:"logging"`
 	GitHub       GitHubConfig       `yaml:"github"`
 	Events       EventsConfig       `yaml:"events"`
@@ -20,6 +22,24 @@ type Config struct {
 	Lanes        LanesConfig        `yaml:"lanes"`
 	Telemetry    TelemetryConfig    `yaml:"telemetry"`
 	RuntimeGraph RuntimeGraphConfig `yaml:"runtime_graph"`
+}
+
+type AccessMode string
+
+const (
+	AccessModeDisabled    AccessMode = "disabled"
+	AccessModeStaticToken AccessMode = "static_token"
+)
+
+type AccessConfig struct {
+	Mode   AccessMode          `yaml:"mode"`
+	Tokens []AccessTokenConfig `yaml:"tokens"`
+}
+
+type AccessTokenConfig struct {
+	Subject  string        `yaml:"subject"`
+	TokenEnv string        `yaml:"token_env"`
+	Roles    []access.Role `yaml:"roles"`
 }
 
 type ServiceConfig struct {
@@ -82,6 +102,7 @@ func Defaults() Config {
 			ControlPlaneAddress: ":8081",
 			ControlPlaneGRPC:    ":9091",
 		},
+		Access:  AccessConfig{Mode: AccessModeDisabled},
 		Logging: LoggingConfig{Level: "info"},
 		GitHub: GitHubConfig{
 			APIBaseURL: "https://api.github.com",
@@ -143,6 +164,10 @@ func Load(path string) (Config, error) {
 // Validate checks configuration values that apply to every merger execution,
 // including local scans and long-running services.
 func Validate(cfg Config) error {
+	if err := validateAccess(cfg.Access); err != nil {
+		return err
+	}
+
 	if cfg.Lanes.GreenMax < 0 || cfg.Lanes.GreenMax > 100 ||
 		cfg.Lanes.YellowMax < 0 || cfg.Lanes.YellowMax > 100 ||
 		cfg.Lanes.RedMax < 0 || cfg.Lanes.RedMax > 100 {
@@ -162,15 +187,103 @@ func Validate(cfg Config) error {
 	return nil
 }
 
+func validateAccess(cfg AccessConfig) error {
+	switch cfg.Mode {
+	case AccessModeDisabled:
+		if len(cfg.Tokens) > 0 {
+			return fmt.Errorf("access tokens must be empty when access.mode is %q", AccessModeDisabled)
+		}
+		return nil
+	case AccessModeStaticToken:
+		if len(cfg.Tokens) == 0 {
+			return fmt.Errorf("access.tokens must contain at least one entry when access.mode is %q", AccessModeStaticToken)
+		}
+	default:
+		return fmt.Errorf("unsupported access mode %q (supported: disabled, static_token)", cfg.Mode)
+	}
+
+	subjects := make(map[string]struct{}, len(cfg.Tokens))
+	environments := make(map[string]struct{}, len(cfg.Tokens))
+	for index, token := range cfg.Tokens {
+		subject := strings.TrimSpace(token.Subject)
+		if subject == "" {
+			return fmt.Errorf("access.tokens[%d].subject must not be empty", index)
+		}
+		subjectKey := strings.ToLower(subject)
+		if _, duplicate := subjects[subjectKey]; duplicate {
+			return fmt.Errorf("access token subject %q is duplicated", subject)
+		}
+		subjects[subjectKey] = struct{}{}
+
+		tokenEnv := strings.TrimSpace(token.TokenEnv)
+		if !validEnvironmentName(tokenEnv) {
+			return fmt.Errorf("access.tokens[%d].token_env %q is not a valid environment variable name", index, token.TokenEnv)
+		}
+		if _, duplicate := environments[tokenEnv]; duplicate {
+			return fmt.Errorf("access token environment variable %q is duplicated", tokenEnv)
+		}
+		environments[tokenEnv] = struct{}{}
+
+		if len(token.Roles) == 0 {
+			return fmt.Errorf("access.tokens[%d].roles must contain at least one role", index)
+		}
+		roles := make(map[access.Role]struct{}, len(token.Roles))
+		for _, role := range token.Roles {
+			if !access.IsSupportedRole(role) {
+				return fmt.Errorf("access.tokens[%d] has unsupported role %q", index, role)
+			}
+			if _, duplicate := roles[role]; duplicate {
+				return fmt.Errorf("access.tokens[%d] has duplicate role %q", index, role)
+			}
+			roles[role] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+func validEnvironmentName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for index, character := range name {
+		if (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || character == '_' {
+			continue
+		}
+		if index > 0 && character >= '0' && character <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // ValidateForService checks configuration shared by long-running services.
 func ValidateForService(cfg Config) error {
 	return Validate(cfg)
 }
 
-// ValidateForIngest adds checks for integrations constructed by the ingest
-// service. InstallationID may be zero because webhook deliveries bind their
-// GitHub App installation dynamically.
+// ValidateForControlPlane adds checks required by the control-plane service.
+func ValidateForControlPlane(cfg Config) error {
+	if err := ValidateForGitHubIntegration(cfg); err != nil {
+		return err
+	}
+	environment := strings.ToLower(strings.TrimSpace(cfg.Telemetry.Environment))
+	if cfg.Access.Mode == AccessModeDisabled && (environment == "prod" || environment == "production") {
+		return fmt.Errorf("access.mode must be %q in production", AccessModeStaticToken)
+	}
+	return nil
+}
+
+// ValidateForIngest checks integrations constructed by the ingest service.
 func ValidateForIngest(cfg Config) error {
+	return ValidateForGitHubIntegration(cfg)
+}
+
+// ValidateForGitHubIntegration adds checks required by services that construct
+// the GitHub client. InstallationID may be zero because webhook deliveries and
+// persisted Change Packets bind their GitHub App installation dynamically.
+func ValidateForGitHubIntegration(cfg Config) error {
 	if err := ValidateForService(cfg); err != nil {
 		return err
 	}

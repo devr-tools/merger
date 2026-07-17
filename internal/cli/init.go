@@ -15,6 +15,9 @@ service:
   controlplane_address: ":8081"
   controlplane_grpc_address: ":9091"
 
+access:
+  mode: disabled
+
 logging:
   level: info
 

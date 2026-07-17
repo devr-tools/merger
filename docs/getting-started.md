@@ -174,6 +174,28 @@ Default ports:
 | Redis | `:6379` |
 | NATS | `:4222` |
 
+### Control-plane authentication
+
+Local development defaults to `access.mode: disabled`. For a deployed control
+plane, configure environment-backed bearer tokens and grant the minimum role
+needed by each caller:
+
+```yaml
+access:
+  mode: static_token
+  tokens:
+    - subject: ci
+      token_env: MERGER_CI_TOKEN
+      roles: [evidence_writer]
+    - subject: dashboard
+      token_env: MERGER_DASHBOARD_TOKEN
+      roles: [reader]
+```
+
+Set the referenced environment variables on the control-plane process. Merger
+stores only token digests in memory. Production configuration validation rejects
+disabled access.
+
 Tear the stack down with `make compose-down`.
 
 ### 3. Verify

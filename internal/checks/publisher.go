@@ -14,6 +14,10 @@ type Publisher interface {
 	Publish(context.Context, domain.ChangePacket) error
 }
 
+type EvidencePublisher interface {
+	PublishWithEvidence(context.Context, domain.ChangePacket, []domain.EvidenceExecution) error
+}
+
 type GitHubCheckPublisher struct {
 	client github.CheckRunPublisher
 }
@@ -23,6 +27,10 @@ func NewGitHubCheckPublisher(client github.CheckRunPublisher) *GitHubCheckPublis
 }
 
 func (p *GitHubCheckPublisher) Publish(ctx context.Context, packet domain.ChangePacket) error {
+	return p.PublishWithEvidence(ctx, packet, nil)
+}
+
+func (p *GitHubCheckPublisher) PublishWithEvidence(ctx context.Context, packet domain.ChangePacket, executions []domain.EvidenceExecution) error {
 	if p.client == nil {
 		return nil
 	}
@@ -55,11 +63,11 @@ func (p *GitHubCheckPublisher) Publish(ctx context.Context, packet domain.Change
 		Name:       "merger/change-control",
 		Status:     status,
 		Conclusion: conclusion,
-		Summary:    buildCheckSummary(packet),
+		Summary:    buildCheckSummary(packet, executions),
 	})
 }
 
-func buildCheckSummary(packet domain.ChangePacket) string {
+func buildCheckSummary(packet domain.ChangePacket, executions []domain.EvidenceExecution) string {
 	var summary strings.Builder
 	fmt.Fprintln(&summary, "## Merger change control")
 	fmt.Fprintln(&summary)
@@ -104,12 +112,25 @@ func buildCheckSummary(packet domain.ChangePacket) string {
 
 	if len(packet.Evidence) > 0 {
 		fmt.Fprintln(&summary, "\n### Evidence checklist")
+		statusByName := evidenceStatuses(executions)
 		for _, evidence := range packet.Evidence {
 			requirement := "optional"
 			if evidence.Required {
 				requirement = "required"
 			}
-			fmt.Fprintf(&summary, "- [ ] `%s` (%s) — %s\n", evidence.Name, requirement, evidence.Reason)
+			status := statusByName[evidence.Name]
+			if status == "" {
+				status = domain.EvidencePending
+			}
+			marker := " "
+			if status == domain.EvidenceSatisfied || status == domain.EvidenceWaived {
+				marker = "x"
+			}
+			fmt.Fprintf(&summary, "- [%s] `%s` (%s) — **%s**", marker, evidence.Name, requirement, status)
+			if evidence.Reason != "" {
+				fmt.Fprintf(&summary, ": %s", evidence.Reason)
+			}
+			fmt.Fprintln(&summary)
 		}
 	}
 
@@ -126,6 +147,14 @@ func buildCheckSummary(packet domain.ChangePacket) string {
 	}
 
 	return truncateSummary(summary.String(), 60000)
+}
+
+func evidenceStatuses(executions []domain.EvidenceExecution) map[string]domain.EvidenceStatus {
+	statuses := make(map[string]domain.EvidenceStatus, len(executions))
+	for _, execution := range executions {
+		statuses[execution.Name] = execution.Status
+	}
+	return statuses
 }
 
 func truncateSummary(value string, maxRunes int) string {

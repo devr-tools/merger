@@ -155,6 +155,38 @@ func TestPublishIncludesActionableMarkdownSummary(t *testing.T) {
 	}
 }
 
+func TestPublishWithEvidenceIncludesExecutionStatuses(t *testing.T) {
+	client := &stubCheckService{}
+	publisher := checks.NewGitHubCheckPublisher(client)
+	packet := domain.ChangePacket{
+		Repo:      domain.RepoRef{Owner: "acme", Name: "payments"},
+		PR:        domain.PullRequestRef{HeadSHA: "abc123"},
+		MergeLane: domain.MergeLaneYellow,
+		Evidence: []domain.EvidenceRequirement{
+			{Name: "integration_tests", Required: true},
+			{Name: "security_review", Required: true},
+		},
+	}
+	executions := []domain.EvidenceExecution{
+		{Name: "integration_tests", Status: domain.EvidenceSatisfied},
+		{Name: "security_review", Status: domain.EvidenceFailed},
+	}
+
+	if err := publisher.PublishWithEvidence(context.Background(), packet, executions); err != nil {
+		t.Fatalf("publish with evidence returned error: %v", err)
+	}
+
+	summary := client.published[0].Summary
+	for _, want := range []string{
+		"- [x] `integration_tests` (required) — **satisfied**",
+		"- [ ] `security_review` (required) — **failed**",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("expected check summary to contain %q, got:\n%s", want, summary)
+		}
+	}
+}
+
 type stubCheckService struct {
 	published           []github.CheckRunInput
 	bound               *stubCheckService

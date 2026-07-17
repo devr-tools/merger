@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devr-tools/merger/internal/access"
 	"github.com/devr-tools/merger/internal/controlplane"
 	controlplanegrpc "github.com/devr-tools/merger/internal/controlplanegrpc"
 	"github.com/devr-tools/merger/internal/domain"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -200,6 +202,86 @@ func TestServerMapsEvidenceUpdateErrors(t *testing.T) {
 	}
 }
 
+func TestAccessUnaryServerInterceptorEnforcesRoles(t *testing.T) {
+	t.Setenv("MERGER_GRPC_READER_TOKEN", "reader-secret")
+	t.Setenv("MERGER_GRPC_WRITER_TOKEN", "writer-secret")
+	t.Setenv("MERGER_GRPC_ADMIN_TOKEN", "admin-secret")
+	authenticator, err := access.NewStaticTokenAuthenticator([]access.StaticToken{
+		{Subject: "dashboard", TokenEnv: "MERGER_GRPC_READER_TOKEN", Roles: []access.Role{access.RoleReader}},
+		{Subject: "ci", TokenEnv: "MERGER_GRPC_WRITER_TOKEN", Roles: []access.Role{access.RoleEvidenceWriter}},
+		{Subject: "operator", TokenEnv: "MERGER_GRPC_ADMIN_TOKEN", Roles: []access.Role{access.RoleAdmin}},
+	})
+	if err != nil {
+		t.Fatalf("construct authenticator: %v", err)
+	}
+
+	repository := store.NewMemoryRepository()
+	seedChangePacket(t, repository, "cp_1", 42, time.Now().UTC())
+	client, cleanup := newTestClientWithRepository(
+		t,
+		repository,
+		grpc.UnaryInterceptor(controlplanegrpc.AccessUnaryServerInterceptor(authenticator)),
+	)
+	defer cleanup()
+
+	getRequest := &mergerv1.GetChangePacketRequest{Ref: &mergerv1.ChangePacketRef{Id: "cp_1"}}
+	_, err = client.GetChangePacket(context.Background(), getRequest)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("expected missing credentials to be unauthenticated, got %v", err)
+	}
+	_, err = client.GetChangePacket(outgoingAuthorization("wrong-secret"), getRequest)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("expected invalid credentials to be unauthenticated, got %v", err)
+	}
+	_, err = client.GetChangePacket(outgoingAuthorization("writer-secret"), getRequest)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected writer read to be denied, got %v", err)
+	}
+	_, err = client.UpdateEvidenceExecution(outgoingAuthorization("reader-secret"), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "running",
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected reader update to be denied, got %v", err)
+	}
+
+	if _, err := client.GetChangePacket(outgoingAuthorization("reader-secret"), getRequest); err != nil {
+		t.Fatalf("reader get change packet: %v", err)
+	}
+	if _, err := client.UpdateEvidenceExecution(outgoingAuthorization("writer-secret"), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "running",
+	}); err != nil {
+		t.Fatalf("writer update evidence: %v", err)
+	}
+	if _, err := client.ListChangePackets(outgoingAuthorization("admin-secret"), &mergerv1.ListChangePacketsRequest{}); err != nil {
+		t.Fatalf("admin list change packets: %v", err)
+	}
+	if _, err := client.UpdateEvidenceExecution(outgoingAuthorization("admin-secret"), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "satisfied",
+	}); err != nil {
+		t.Fatalf("admin update evidence: %v", err)
+	}
+}
+
+func TestAccessUnaryServerInterceptorAllowsDisabledModeWithoutMetadata(t *testing.T) {
+	repository := store.NewMemoryRepository()
+	client, cleanup := newTestClientWithRepository(
+		t,
+		repository,
+		grpc.UnaryInterceptor(controlplanegrpc.AccessUnaryServerInterceptor(access.NewDisabledAuthenticator())),
+	)
+	defer cleanup()
+
+	if _, err := client.ListChangePackets(context.Background(), &mergerv1.ListChangePacketsRequest{}); err != nil {
+		t.Fatalf("disabled access mode should allow local request without metadata: %v", err)
+	}
+}
+
 func newTestClient(t *testing.T) (mergerv1.ChangeControlServiceClient, func()) {
 	t.Helper()
 
@@ -209,11 +291,11 @@ func newTestClient(t *testing.T) (mergerv1.ChangeControlServiceClient, func()) {
 	return newTestClientWithRepository(t, repository)
 }
 
-func newTestClientWithRepository(t *testing.T, repository store.Repository) (mergerv1.ChangeControlServiceClient, func()) {
+func newTestClientWithRepository(t *testing.T, repository store.Repository, serverOptions ...grpc.ServerOption) (mergerv1.ChangeControlServiceClient, func()) {
 	t.Helper()
 
 	service := controlplane.NewService(repository)
-	server := grpc.NewServer()
+	server := grpc.NewServer(serverOptions...)
 	mergerv1.RegisterChangeControlServiceServer(server, controlplanegrpc.NewServer(service))
 
 	listener := bufconn.Listen(1024 * 1024)
@@ -238,6 +320,10 @@ func newTestClientWithRepository(t *testing.T, repository store.Repository) (mer
 	}
 
 	return mergerv1.NewChangeControlServiceClient(conn), cleanup
+}
+
+func outgoingAuthorization(token string) context.Context {
+	return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+token)
 }
 
 type limitRecordingRepository struct {

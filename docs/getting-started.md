@@ -55,6 +55,14 @@ merger scan -base-ref origin/main -fail-on-lane RED
 
 This exits non-zero when the assigned lane is at or above `RED`.
 
+For an actionable explanation of the result, including policy rationale, risk
+contributors, mitigations, affected services, and runtime notes, add
+`-explain`:
+
+```bash
+merger scan -base-ref origin/main -explain
+```
+
 ### Configuration discovery
 
 `merger` auto-discovers configuration from, in order:
@@ -117,6 +125,9 @@ Add the `Devr Merger` action to gate pull requests on their assigned lane:
 | `format` | `text` | Output format (`text` or `json`) |
 | `fail-on-lane` | report only | Fail when the assigned lane is at or above this lane |
 | `version` | `latest` | `merger` version to install |
+
+The Action exports `lane`, `risk-score`, and `change-packet-id` outputs for use
+by later workflow steps.
 
 ## Run the control plane locally
 

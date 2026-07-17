@@ -12,6 +12,8 @@ func classifyRisk(kind domain.MutationKind) (domain.RiskType, string, []string) 
 		return domain.RiskRollout, "rollout behavior changed", []string{"canary", "runtime smoke tests"}
 	case domain.MutationDependency:
 		return domain.RiskDependency, "dependency graph changed", []string{"dependency diff review", "build provenance"}
+	case domain.MutationDataAccess:
+		return domain.RiskRuntime, "data access behavior changed", []string{"integration tests", "data consistency validation"}
 	default:
 		return domain.RiskRuntime, "runtime behavior may have shifted", []string{"integration tests"}
 	}

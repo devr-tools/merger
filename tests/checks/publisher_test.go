@@ -2,6 +2,7 @@ package checks_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/devr-tools/merger/internal/checks"
@@ -90,6 +91,67 @@ func TestPublishMapsLaneToConclusion(t *testing.T) {
 				t.Fatalf("expected conclusion %q, got %q", tc.conclusion, client.published[0].Conclusion)
 			}
 		})
+	}
+}
+
+func TestPublishIncludesActionableMarkdownSummary(t *testing.T) {
+	client := &stubCheckService{}
+	publisher := checks.NewGitHubCheckPublisher(client)
+	packet := domain.ChangePacket{
+		Repo:        domain.RepoRef{Owner: "acme", Name: "payments"},
+		PR:          domain.PullRequestRef{HeadSHA: "abc123"},
+		MergeLane:   domain.MergeLaneRed,
+		RiskSummary: domain.RiskSummary{Score: 67, Severity: domain.SeverityHigh},
+		Mutations: []domain.Mutation{{
+			Kind:     domain.MutationAuthBehaviorChange,
+			Severity: domain.SeverityHigh,
+			Title:    "authentication behavior changed",
+		}},
+		Risks: []domain.Risk{{
+			Type:        domain.RiskSecurity,
+			Score:       35,
+			Summary:     "security boundary changed",
+			Mitigations: []string{"run authentication integration tests"},
+		}},
+		Decision: domain.PolicyDecision{
+			Status:          domain.DecisionPending,
+			Summary:         "security review and evidence are required",
+			AppliedPolicies: []string{"auth_requires_security_review"},
+		},
+		Reviewers: []domain.ReviewerRequirement{{Team: "security", Mandatory: true, Reason: "required by policy"}},
+		Evidence: []domain.EvidenceRequirement{{
+			Name:     "auth_integration_tests",
+			Type:     domain.EvidenceAuthTests,
+			Required: true,
+			Reason:   "required by policy",
+		}},
+		Deployment: domain.DeploymentRequirement{
+			Strategy:             domain.DeployCanary,
+			RequiresCanary:       true,
+			RequiresRollbackPlan: true,
+		},
+	}
+
+	if err := publisher.Publish(context.Background(), packet); err != nil {
+		t.Fatalf("publish returned error: %v", err)
+	}
+	if len(client.published) != 1 {
+		t.Fatalf("expected one check run, got %d", len(client.published))
+	}
+
+	summary := client.published[0].Summary
+	for _, want := range []string{
+		"## Merger change control",
+		"**Why:** security review and evidence are required",
+		"### Detected mutations",
+		"### Risk and mitigation",
+		"### Required reviewers",
+		"### Evidence checklist",
+		"Canary rollout required",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("expected check summary to contain %q, got:\n%s", want, summary)
+		}
 	}
 }
 

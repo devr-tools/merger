@@ -108,6 +108,63 @@ func TestScanWithoutDiffSourceFails(t *testing.T) {
 	assertExitCode(t, err, 2)
 }
 
+func TestScanExplainIncludesDecisionDetails(t *testing.T) {
+	dir := t.TempDir()
+	captureStdout(t, func() { _ = cli.Run(context.Background(), []string{"init", "-dir", dir}) })
+
+	diffPath := filepath.Join(dir, "change.diff")
+	if err := os.WriteFile(diffPath, []byte(authDiff), 0o644); err != nil {
+		t.Fatalf("write diff: %v", err)
+	}
+
+	var err error
+	out := captureStdout(t, func() {
+		err = cli.Run(context.Background(), []string{
+			"scan", "-repo-root", dir, "-diff", diffPath, "-explain",
+		})
+	})
+	if err != nil {
+		t.Fatalf("scan --explain: %v", err)
+	}
+	for _, want := range []string{"explanation:", "policy:", "risks:", "mitigate:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected explanation output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestScanWritesGitHubActionOutputs(t *testing.T) {
+	dir := t.TempDir()
+	captureStdout(t, func() { _ = cli.Run(context.Background(), []string{"init", "-dir", dir}) })
+
+	diffPath := filepath.Join(dir, "change.diff")
+	if err := os.WriteFile(diffPath, []byte(authDiff), 0o644); err != nil {
+		t.Fatalf("write diff: %v", err)
+	}
+	outputPath := filepath.Join(dir, "github-output")
+
+	var err error
+	captureStdout(t, func() {
+		err = cli.Run(context.Background(), []string{
+			"scan", "-repo-root", dir, "-diff", diffPath, "-github-output", outputPath,
+		})
+	})
+	if err != nil {
+		t.Fatalf("scan with GitHub output: %v", err)
+	}
+
+	raw, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		t.Fatalf("read GitHub output: %v", readErr)
+	}
+	output := string(raw)
+	for _, want := range []string{"lane=RED", "risk-score=", "change-packet-id=cp_"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected GitHub output to contain %q, got:\n%s", want, output)
+		}
+	}
+}
+
 func assertExitCode(t *testing.T, err error, want int) {
 	t.Helper()
 	var exit cli.ExitError

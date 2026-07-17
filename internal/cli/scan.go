@@ -30,6 +30,8 @@ func runScan(ctx context.Context, args []string) error {
 	diffPath := fs.String("diff", "", "unified diff file to scan, or '-' for stdin")
 	baseRef := fs.String("base-ref", "", "git base ref; scans `git diff <base-ref>...HEAD` when -diff is unset")
 	format := fs.String("format", "text", "output format: text or json")
+	explain := fs.Bool("explain", false, "include risk contributors, policy rationale, runtime details, and mitigations in text output")
+	githubOutput := fs.String("github-output", "", "append lane, risk-score, and change-packet-id outputs to a GitHub Actions output file")
 	failOn := fs.String("fail-on-lane", "", "exit non-zero when the assigned lane is at or above this lane (GREEN|YELLOW|RED|BLACK)")
 	repo := fs.String("repo", "", "repository identifier as owner/name (optional)")
 	ref := fs.String("ref", "", "revision the diff targets (optional)")
@@ -69,11 +71,29 @@ func runScan(ctx context.Context, args []string) error {
 			return err
 		}
 	} else {
-		writeTextReport(os.Stdout, packet)
+		writeTextReport(os.Stdout, packet, *explain)
+	}
+	if *githubOutput != "" {
+		if err := writeGitHubOutput(*githubOutput, packet); err != nil {
+			return err
+		}
 	}
 
 	if failLane != "" && laneRank[packet.MergeLane] >= laneRank[failLane] {
 		return ExitError{Code: 2, Message: fmt.Sprintf("merge lane %s is at or above the -fail-on-lane threshold %s", packet.MergeLane, failLane)}
+	}
+	return nil
+}
+
+func writeGitHubOutput(path string, packet *domain.ChangePacket) error {
+	output, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open GitHub output file: %w", err)
+	}
+	defer output.Close()
+
+	if _, err := fmt.Fprintf(output, "lane=%s\nrisk-score=%d\nchange-packet-id=%s\n", packet.MergeLane, packet.RiskSummary.Score, packet.ID); err != nil {
+		return fmt.Errorf("write GitHub outputs: %w", err)
 	}
 	return nil
 }
@@ -124,7 +144,7 @@ func writeJSON(w io.Writer, payload any) error {
 	return nil
 }
 
-func writeTextReport(w io.Writer, packet *domain.ChangePacket) {
+func writeTextReport(w io.Writer, packet *domain.ChangePacket, explain bool) {
 	repo := packet.Repo.FullName
 	if repo == "" {
 		repo = "-"
@@ -172,4 +192,46 @@ func writeTextReport(w io.Writer, packet *domain.ChangePacket) {
 	}
 	fmt.Fprintf(w, "deployment: %s\n", deployment)
 	fmt.Fprintf(w, "merge lane: %s\n", packet.MergeLane)
+
+	if explain {
+		writeExplanation(w, packet)
+	}
+}
+
+func writeExplanation(w io.Writer, packet *domain.ChangePacket) {
+	fmt.Fprintln(w, "\nexplanation:")
+	if packet.Decision.Summary != "" {
+		fmt.Fprintf(w, "  policy: %s\n", packet.Decision.Summary)
+	}
+	for _, reason := range packet.Decision.Reasons {
+		fmt.Fprintf(w, "  - policy reason: %s\n", reason)
+	}
+	for _, violation := range packet.Decision.Violations {
+		fmt.Fprintf(w, "  - violation [%s] %s: %s\n", violation.Severity, violation.Policy, violation.Reason)
+	}
+
+	if len(packet.Risks) == 0 {
+		fmt.Fprintln(w, "  risks: no scored risk contributors")
+	} else {
+		fmt.Fprintln(w, "  risks:")
+		for _, risk := range packet.Risks {
+			fmt.Fprintf(w, "    - [%s] %s +%d: %s\n", risk.Severity, risk.Type, risk.Score, risk.Summary)
+			if risk.Reason != "" {
+				fmt.Fprintf(w, "      reason: %s\n", risk.Reason)
+			}
+			for _, mitigation := range risk.Mitigations {
+				fmt.Fprintf(w, "      mitigate: %s\n", mitigation)
+			}
+		}
+	}
+
+	if len(packet.Runtime.Services) > 0 {
+		fmt.Fprintln(w, "  affected services:")
+		for _, service := range packet.Runtime.Services {
+			fmt.Fprintf(w, "    - %s (%s, criticality=%s)\n", service.Name, service.Kind, service.Criticality)
+		}
+	}
+	for _, note := range packet.Runtime.Notes {
+		fmt.Fprintf(w, "  - runtime note: %s\n", note)
+	}
 }

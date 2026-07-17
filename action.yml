@@ -30,6 +30,17 @@ inputs:
     required: false
     default: latest
 
+outputs:
+  lane:
+    description: Assigned merge lane (GREEN, YELLOW, RED, or BLACK)
+    value: ${{ steps.scan.outputs.lane }}
+  risk-score:
+    description: Aggregate risk score from 0 to 100
+    value: ${{ steps.scan.outputs.risk-score }}
+  change-packet-id:
+    description: Identifier of the generated Change Packet
+    value: ${{ steps.scan.outputs.change-packet-id }}
+
 runs:
   using: composite
   steps:
@@ -55,7 +66,7 @@ runs:
         FAIL_ON_LANE: ${{ inputs.fail-on-lane }}
       run: |
         set +e
-        args=(scan -base-ref "$BASE_REF" -repo-root "$REPO_ROOT" -format "$FORMAT")
+        args=(scan -base-ref "$BASE_REF" -repo-root "$REPO_ROOT" -format "$FORMAT" -github-output "$GITHUB_OUTPUT")
         if [ -n "$CONFIG" ]; then
           args+=(-config "$CONFIG")
         fi

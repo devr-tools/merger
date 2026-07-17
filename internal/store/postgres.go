@@ -46,6 +46,12 @@ func (r *PostgresRepository) SaveChangePacket(ctx context.Context, packet domain
 		return err
 	}
 
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	query := `
 insert into merger_change_packets (
   id, repo_full_name, pr_number, author_login, merge_lane, risk_score, decision_status, payload, created_at, updated_at
@@ -58,7 +64,7 @@ on conflict (id) do update set
   payload = excluded.payload,
   updated_at = excluded.updated_at`
 
-	_, err = r.db.ExecContext(
+	_, err = tx.ExecContext(
 		ctx,
 		query,
 		packet.ID,
@@ -76,7 +82,11 @@ on conflict (id) do update set
 		return err
 	}
 
-	return r.syncEvidenceRequirements(ctx, packet)
+	if err := syncEvidenceRequirements(ctx, tx, packet); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *PostgresRepository) SaveEvent(ctx context.Context, event events.Envelope) error {
@@ -178,7 +188,7 @@ on conflict (change_packet_id, evidence_name) do update set
 		execution.Summary,
 		execution.DetailsURL,
 		execution.UpdatedBy,
-		metadata,
+		string(metadata),
 		execution.UpdatedAt,
 	)
 	return err
@@ -236,17 +246,30 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 	return r.db.PingContext(ctx)
 }
 
-func (r *PostgresRepository) syncEvidenceRequirements(ctx context.Context, packet domain.ChangePacket) error {
+type statementExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func syncEvidenceRequirements(ctx context.Context, executor statementExecutor, packet domain.ChangePacket) error {
 	for _, requirement := range packet.Evidence {
-		if err := r.UpsertEvidenceExecution(ctx, domain.EvidenceExecution{
-			ChangePacketID: packet.ID,
-			Name:           requirement.Name,
-			Type:           requirement.Type,
-			Status:         domain.EvidencePending,
-			Required:       requirement.Required,
-			UpdatedBy:      "merger",
-			UpdatedAt:      packet.UpdatedAt,
-		}); err != nil {
+		_, err := executor.ExecContext(ctx, `
+insert into merger_evidence_executions (
+	change_packet_id, evidence_name, evidence_type, status, required, updated_by, metadata, updated_at
+)
+values ($1,$2,$3,$4,$5,$6,$7,$8)
+on conflict (change_packet_id, evidence_name) do update set
+	evidence_type = excluded.evidence_type,
+	required = excluded.required`,
+			packet.ID,
+			requirement.Name,
+			requirement.Type,
+			domain.EvidencePending,
+			requirement.Required,
+			"merger",
+			"null",
+			packet.UpdatedAt,
+		)
+		if err != nil {
 			return err
 		}
 	}

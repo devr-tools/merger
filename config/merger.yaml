@@ -3,6 +3,27 @@ service:
   controlplane_address: ":8081"
   controlplane_grpc_address: ":9091"
 
+access:
+  mode: disabled
+  # For deployed control planes, use either:
+  # mode: static_token
+  # tokens:
+  #   - subject: ci
+  #     token_env: MERGER_CI_TOKEN
+  #     roles: [evidence_writer]
+  #
+  # or:
+  # mode: jwt
+  # jwt:
+  #   algorithm: RS256
+  #   issuer: https://auth.example.com
+  #   audience: merger-controlplane
+  #   public_key_path: ./secrets/controlplane-jwt-public.pem
+  #   roles_claim: groups
+  #   role_bindings:
+  #     - claim_value: merger.read
+  #       roles: [reader]
+
 logging:
   level: info
 

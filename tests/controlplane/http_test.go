@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,7 +45,7 @@ func TestHTTPHandlerUpdatesEvidenceExecution(t *testing.T) {
 	mux := http.NewServeMux()
 	handler.Register(mux)
 
-	body := bytes.NewBufferString(`{"status":"satisfied","summary":"tests passed","updatedBy":"ci","type":"integration_tests","required":true}`)
+	body := bytes.NewBufferString(`{"status":"satisfied","summary":"tests passed","updatedBy":"ci","type":"security_review","required":false}`)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/change-packets/cp_1/evidence/integration_tests", body)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -59,6 +60,115 @@ func TestHTTPHandlerUpdatesEvidenceExecution(t *testing.T) {
 	}
 	if executions[0].Status != domain.EvidenceSatisfied {
 		t.Fatalf("expected satisfied evidence, got %s", executions[0].Status)
+	}
+	if executions[0].Type != domain.EvidenceIntegrationTests || !executions[0].Required {
+		t.Fatalf("expected policy-owned evidence fields, got type=%q required=%t", executions[0].Type, executions[0].Required)
+	}
+}
+
+func TestHTTPHandlerRejectsInvalidEvidenceUpdates(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		prepare    func(t *testing.T, mux *http.ServeMux)
+		wantStatus int
+	}{
+		{
+			name:       "invalid status",
+			path:       "/api/v1/change-packets/cp_1/evidence/integration_tests",
+			body:       `{"status":"unknown"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "empty status",
+			path:       "/api/v1/change-packets/cp_1/evidence/integration_tests",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing packet",
+			path:       "/api/v1/change-packets/missing/evidence/integration_tests",
+			body:       `{"status":"satisfied"}`,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "undeclared evidence",
+			path:       "/api/v1/change-packets/cp_1/evidence/security_review",
+			body:       `{"status":"satisfied"}`,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "unattributed waiver",
+			path:       "/api/v1/change-packets/cp_1/evidence/integration_tests",
+			body:       `{"status":"waived"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid transition",
+			path: "/api/v1/change-packets/cp_1/evidence/integration_tests",
+			body: `{"status":"running"}`,
+			prepare: func(t *testing.T, mux *http.ServeMux) {
+				req := httptest.NewRequest(http.MethodPut, "/api/v1/change-packets/cp_1/evidence/integration_tests", bytes.NewBufferString(`{"status":"satisfied"}`))
+				rec := httptest.NewRecorder()
+				mux.ServeHTTP(rec, req)
+				if rec.Code != http.StatusAccepted {
+					t.Fatalf("prepare satisfied evidence: got status %d", rec.Code)
+				}
+			},
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := seedRepository(t)
+			handler := controlplane.NewHTTPHandler(controlplane.NewService(repo))
+			mux := http.NewServeMux()
+			handler.Register(mux)
+			if test.prepare != nil {
+				test.prepare(t, mux)
+			}
+
+			req := httptest.NewRequest(http.MethodPut, test.path, bytes.NewBufferString(test.body))
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != test.wantStatus {
+				t.Fatalf("expected %d, got %d: %s", test.wantStatus, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHTTPHandlerRejectsTrailingEvidenceJSON(t *testing.T) {
+	repo := seedRepository(t)
+	handler := controlplane.NewHTTPHandler(controlplane.NewService(repo))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	body := bytes.NewBufferString(`{"status":"satisfied"} {"status":"pending"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/change-packets/cp_1/evidence/integration_tests", body)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHTTPHandlerRejectsOversizedEvidenceRequest(t *testing.T) {
+	repo := seedRepository(t)
+	handler := controlplane.NewHTTPHandler(controlplane.NewService(repo))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	body := bytes.NewBufferString(`{"summary":"` + strings.Repeat("x", 65<<10) + `"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/change-packets/cp_1/evidence/integration_tests", body)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
 	}
 }
 

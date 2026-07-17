@@ -10,6 +10,7 @@ import (
 
 	"github.com/devr-tools/merger/internal/controlplane"
 	"github.com/devr-tools/merger/internal/domain"
+	"github.com/devr-tools/merger/internal/store"
 )
 
 func TestHTTPHandlerListsChangePackets(t *testing.T) {
@@ -66,6 +67,44 @@ func TestHTTPHandlerReturnsNotFoundForMissingPacket(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerValidatesAndCapsListLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		wantStatus int
+		wantLimit  int
+	}{
+		{name: "default", query: "", wantStatus: http.StatusOK, wantLimit: controlplane.DefaultListLimit},
+		{name: "valid", query: "?limit=17", wantStatus: http.StatusOK, wantLimit: 17},
+		{name: "capped", query: "?limit=999", wantStatus: http.StatusOK, wantLimit: controlplane.MaxListLimit},
+		{name: "empty", query: "?limit=", wantStatus: http.StatusBadRequest},
+		{name: "zero", query: "?limit=0", wantStatus: http.StatusBadRequest},
+		{name: "negative", query: "?limit=-1", wantStatus: http.StatusBadRequest},
+		{name: "malformed", query: "?limit=many", wantStatus: http.StatusBadRequest},
+		{name: "repeated", query: "?limit=1&limit=2", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &limitRecordingRepository{MemoryRepository: seedRepository(t)}
+			handler := controlplane.NewHTTPHandler(controlplane.NewService(repo))
+			mux := http.NewServeMux()
+			handler.Register(mux)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/change-packets"+tt.query, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d", tt.wantStatus, rec.Code)
+			}
+			if tt.wantStatus == http.StatusOK && repo.limit != tt.wantLimit {
+				t.Fatalf("expected repository limit %d, got %d", tt.wantLimit, repo.limit)
+			}
+		})
+	}
+}
+
 func TestHTTPHandlerRejectsUnsupportedMethods(t *testing.T) {
 	repo := seedRepository(t)
 	handler := controlplane.NewHTTPHandler(controlplane.NewService(repo))
@@ -79,4 +118,17 @@ func TestHTTPHandlerRejectsUnsupportedMethods(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}
+	if allow := rec.Header().Get("Allow"); allow != http.MethodGet {
+		t.Fatalf("expected Allow %q, got %q", http.MethodGet, allow)
+	}
+}
+
+type limitRecordingRepository struct {
+	*store.MemoryRepository
+	limit int
+}
+
+func (r *limitRecordingRepository) ListChangePackets(ctx context.Context, limit int) ([]domain.ChangePacket, error) {
+	r.limit = limit
+	return r.MemoryRepository.ListChangePackets(ctx, limit)
 }

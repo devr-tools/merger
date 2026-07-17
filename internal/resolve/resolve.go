@@ -80,7 +80,11 @@ func Config(root, explicit string) (config.Config, string, error) {
 		return config.Config{}, "", err
 	}
 	if path == "" {
-		return config.Defaults(), "", nil
+		cfg := config.Defaults()
+		if err := config.Validate(cfg); err != nil {
+			return config.Config{}, "", err
+		}
+		return cfg, "", nil
 	}
 	cfg, err := config.Load(path)
 	if err != nil {

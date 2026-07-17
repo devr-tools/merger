@@ -24,7 +24,7 @@ func (p *Processor) buildChangePacket(
 ) (*domain.ChangePacket, error) {
 	rawDiff, err := service.GetPullRequestDiff(ctx, repoOwner, repoName, prNumber)
 	if err != nil {
-		rawDiff = ""
+		return nil, fmt.Errorf("get pull request diff for %s/%s#%d: %w", repoOwner, repoName, prNumber, err)
 	}
 
 	parsedFiles, err := diff.ParseUnified(rawDiff)

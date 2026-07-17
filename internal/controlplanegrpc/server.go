@@ -36,7 +36,10 @@ func (s *Server) GetChangePacket(ctx context.Context, request *mergerv1.GetChang
 func (s *Server) ListChangePackets(ctx context.Context, request *mergerv1.ListChangePacketsRequest) (*mergerv1.ListChangePacketsResponse, error) {
 	limit := int(request.GetLimit())
 	if limit <= 0 {
-		limit = 50
+		limit = controlplane.DefaultListLimit
+	}
+	if limit > controlplane.MaxListLimit {
+		limit = controlplane.MaxListLimit
 	}
 
 	items, err := s.service.ListChangePackets(ctx, limit)
@@ -66,6 +69,18 @@ func statusForError(err error) error {
 	}
 	if errors.Is(err, store.ErrChangePacketNotFound) {
 		return status.Error(codes.NotFound, err.Error())
+	}
+	var validationError *controlplane.EvidenceValidationError
+	if errors.As(err, &validationError) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	var notFoundError *controlplane.EvidenceNotFoundError
+	if errors.As(err, &notFoundError) {
+		return status.Error(codes.NotFound, err.Error())
+	}
+	var transitionError *controlplane.EvidenceTransitionError
+	if errors.As(err, &transitionError) {
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return status.Error(codes.Internal, err.Error())
 }

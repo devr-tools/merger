@@ -15,6 +15,23 @@ service:
   controlplane_address: ":8081"
   controlplane_grpc_address: ":9091"
 
+access:
+  mode: disabled
+  # Static token example:
+  # tokens:
+  #   - subject: ci
+  #     token_env: MERGER_CI_TOKEN
+  #     roles: [evidence_writer]
+  # JWT example:
+  # jwt:
+  #   algorithm: HS256
+  #   issuer: https://auth.example.test
+  #   audience: merger-controlplane
+  #   secret_env: MERGER_CONTROLPLANE_JWT_SECRET
+  #   role_bindings:
+  #     - claim_value: merger.read
+  #       roles: [reader]
+
 logging:
   level: info
 

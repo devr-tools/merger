@@ -43,20 +43,12 @@ func runValidate(args []string) error {
 		return ExitError{Code: 1, Message: fmt.Sprintf("policy file not found (looked for %q); pass -policy or set policy.path", wanted)}
 	}
 
-	if err := validateLanes(cfg); err != nil {
+	if err := config.Validate(cfg); err != nil {
 		return ExitError{Code: 1, Message: err.Error()}
 	}
 
 	fmt.Printf("policy:   %s (%d rule(s))\n", resolvedPolicy, len(policyConfig.Policies))
 	fmt.Printf("lanes:    green<=%d yellow<=%d red<=%d\n", cfg.Lanes.GreenMax, cfg.Lanes.YellowMax, cfg.Lanes.RedMax)
 	fmt.Fprintln(os.Stdout, "ok")
-	return nil
-}
-
-func validateLanes(cfg config.Config) error {
-	l := cfg.Lanes
-	if !(l.GreenMax < l.YellowMax && l.YellowMax < l.RedMax) {
-		return fmt.Errorf("lane thresholds must be strictly increasing: green(%d) < yellow(%d) < red(%d)", l.GreenMax, l.YellowMax, l.RedMax)
-	}
 	return nil
 }

@@ -26,9 +26,13 @@ type AppAuthenticator struct {
 	privateKey *rsa.PrivateKey
 	client     *Client
 
-	mu          sync.Mutex
-	cachedToken string
-	expiresAt   time.Time
+	mu     sync.Mutex
+	tokens map[int64]installationToken
+}
+
+type installationToken struct {
+	value     string
+	expiresAt time.Time
 }
 
 func NewAppAuthenticator(appID, privateKeyPath string, client *Client) (*AppAuthenticator, error) {
@@ -60,6 +64,7 @@ func NewAppAuthenticator(appID, privateKeyPath string, client *Client) (*AppAuth
 		appID:      appID,
 		privateKey: key,
 		client:     client,
+		tokens:     make(map[int64]installationToken),
 	}, nil
 }
 
@@ -67,8 +72,9 @@ func (a *AppAuthenticator) Token(ctx context.Context, installationID int64) (str
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.cachedToken != "" && time.Now().UTC().Before(a.expiresAt.Add(-1*time.Minute)) {
-		return a.cachedToken, nil
+	cached := a.tokens[installationID]
+	if cached.value != "" && time.Now().UTC().Before(cached.expiresAt.Add(-1*time.Minute)) {
+		return cached.value, nil
 	}
 
 	jwtToken, err := a.appJWT()
@@ -94,8 +100,10 @@ func (a *AppAuthenticator) Token(ctx context.Context, installationID int64) (str
 		return "", err
 	}
 
-	a.cachedToken = response.Token
-	a.expiresAt = response.ExpiresAt
+	a.tokens[installationID] = installationToken{
+		value:     response.Token,
+		expiresAt: response.ExpiresAt,
+	}
 	return response.Token, nil
 }
 

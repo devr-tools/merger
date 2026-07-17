@@ -55,6 +55,19 @@ merger scan -base-ref origin/main -fail-on-lane RED
 
 This exits non-zero when the assigned lane is at or above `RED`.
 
+For an actionable explanation of the result, including policy rationale, risk
+contributors, mitigations, affected services, and runtime notes, add
+`-explain`:
+
+```bash
+merger scan -base-ref origin/main -explain
+```
+
+`merger validate` uses the same strict validators as the SDK, MCP server, and
+long-running services. It rejects unknown YAML fields, invalid lane thresholds
+or enum values, duplicate policy names, and rules with no condition or effect.
+This catches misspelled safety controls before a scan or service starts.
+
 ### Configuration discovery
 
 `merger` auto-discovers configuration from, in order:
@@ -118,6 +131,9 @@ Add the `Devr Merger` action to gate pull requests on their assigned lane:
 | `fail-on-lane` | report only | Fail when the assigned lane is at or above this lane |
 | `version` | `latest` | `merger` version to install |
 
+The Action exports `lane`, `risk-score`, and `change-packet-id` outputs for use
+by later workflow steps.
+
 ## Run the control plane locally
 
 The full control plane (webhook ingest, persistence, event bus) needs the local
@@ -157,6 +173,53 @@ Default ports:
 | PostgreSQL | `:5432` |
 | Redis | `:6379` |
 | NATS | `:4222` |
+
+### Control-plane authentication
+
+Local development defaults to `access.mode: disabled`. For a deployed control
+plane, either configure environment-backed bearer tokens or validate signed
+JWTs from your auth gateway or identity provider.
+
+Static token mode:
+
+```yaml
+access:
+  mode: static_token
+  tokens:
+    - subject: ci
+      token_env: MERGER_CI_TOKEN
+      roles: [evidence_writer]
+    - subject: dashboard
+      token_env: MERGER_DASHBOARD_TOKEN
+      roles: [reader]
+```
+
+Set the referenced environment variables on the control-plane process. Merger
+stores only token digests in memory. Production configuration validation rejects
+disabled access.
+
+JWT mode:
+
+```yaml
+access:
+  mode: jwt
+  jwt:
+    algorithm: HS256
+    issuer: https://auth.example.test
+    audience: merger-controlplane
+    secret_env: MERGER_CONTROLPLANE_JWT_SECRET
+    roles_claim: scope
+    role_bindings:
+      - claim_value: merger.read
+        roles: [reader]
+      - claim_value: merger.write
+        roles: [evidence_writer]
+```
+
+For asymmetric signing, use `algorithm: RS256` and `public_key_path` instead of
+`secret_env`. Merger validates issuer, audience, expiry, and signature, then
+maps claim values to Merger roles. `subject_claim` defaults to `sub`, and
+`roles_claim` defaults to `roles` when omitted.
 
 Tear the stack down with `make compose-down`.
 

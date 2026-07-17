@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/devr-tools/merger/internal/access"
 	"github.com/devr-tools/merger/internal/config"
 	"github.com/devr-tools/merger/internal/controlplane"
 	controlplanegrpc "github.com/devr-tools/merger/internal/controlplanegrpc"
@@ -24,8 +25,27 @@ type App struct {
 	bus         events.Bus
 }
 
-func New(cfg config.Config, logger *telemetry.Logger, bus events.Bus, repository store.Repository) *App {
-	service := controlplane.NewService(repository)
+func New(
+	cfg config.Config,
+	logger *telemetry.Logger,
+	bus events.Bus,
+	repository store.Repository,
+) *App {
+	return NewWithAccess(cfg, logger, bus, repository, access.NewDisabledAuthenticator())
+}
+
+func NewWithAccess(
+	cfg config.Config,
+	logger *telemetry.Logger,
+	bus events.Bus,
+	repository store.Repository,
+	authenticator access.Authenticator,
+	serviceOptions ...controlplane.Option,
+) *App {
+	if authenticator == nil {
+		panic("control-plane authenticator is required")
+	}
+	service := controlplane.NewServiceWithOptions(repository, serviceOptions...)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -33,7 +53,7 @@ func New(cfg config.Config, logger *telemetry.Logger, bus events.Bus, repository
 	})
 	controlplane.NewHTTPHandler(service).Register(mux)
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(controlplanegrpc.AccessUnaryServerInterceptor(authenticator)))
 	mergerv1.RegisterChangeControlServiceServer(grpcServer, controlplanegrpc.NewServer(service))
 
 	return &App{
@@ -43,7 +63,7 @@ func New(cfg config.Config, logger *telemetry.Logger, bus events.Bus, repository
 		grpcAddress: cfg.Service.ControlPlaneGRPC,
 		httpServer: &http.Server{
 			Addr:    cfg.Service.ControlPlaneAddress,
-			Handler: mux,
+			Handler: controlplane.AccessMiddleware(authenticator, mux),
 		},
 	}
 }

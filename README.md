@@ -73,6 +73,7 @@ merger init                       # scaffold .merger/ config + policy
 merger validate                   # check config and policy resolve
 merger scan -base-ref origin/main # analyze the diff vs a base ref
 merger scan -diff change.diff -format json
+merger scan -base-ref origin/main -explain # show rationale and mitigations
 ```
 
 `merger scan` parses a unified diff (from `-diff <file|->` or a `-base-ref <ref>`
@@ -80,6 +81,9 @@ git range), runs mutation detection, runtime-graph, risk, policy, and lane
 assignment, and prints a report (`-format text|json`). Pass `-fail-on-lane RED`
 to exit non-zero when a change lands in a given lane or higher — a ready-made CI
 gate.
+
+Use `-explain` with text output to include policy rationale, scored risk
+contributors, mitigations, affected services, and runtime notes.
 
 Configuration is auto-discovered from `merger.yaml` or `.merger/merger.yaml`.
 `merger mcp` serves the same analysis as agent tools over the Model Context

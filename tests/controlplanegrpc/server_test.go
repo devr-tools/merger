@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devr-tools/merger/internal/access"
 	"github.com/devr-tools/merger/internal/controlplane"
 	controlplanegrpc "github.com/devr-tools/merger/internal/controlplanegrpc"
 	"github.com/devr-tools/merger/internal/domain"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -54,6 +56,20 @@ func TestServerListChangePackets(t *testing.T) {
 	}
 }
 
+func TestServerCapsListChangePacketsLimit(t *testing.T) {
+	repository := &limitRecordingRepository{MemoryRepository: store.NewMemoryRepository()}
+	client, cleanup := newTestClientWithRepository(t, repository)
+	defer cleanup()
+
+	_, err := client.ListChangePackets(context.Background(), &mergerv1.ListChangePacketsRequest{Limit: 999})
+	if err != nil {
+		t.Fatalf("list change packets: %v", err)
+	}
+	if repository.limit != controlplane.MaxListLimit {
+		t.Fatalf("expected repository limit %d, got %d", controlplane.MaxListLimit, repository.limit)
+	}
+}
+
 func TestServerUpdateEvidenceExecution(t *testing.T) {
 	client, cleanup := newTestClient(t)
 	defer cleanup()
@@ -61,9 +77,9 @@ func TestServerUpdateEvidenceExecution(t *testing.T) {
 	response, err := client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
 		ChangePacketId: "cp_1",
 		Name:           "integration_tests",
-		Type:           "integration_tests",
+		Type:           "security_review",
 		Status:         "satisfied",
-		Required:       true,
+		Required:       false,
 		Summary:        "ci passed",
 		UpdatedBy:      "ci",
 	})
@@ -76,6 +92,9 @@ func TestServerUpdateEvidenceExecution(t *testing.T) {
 	}
 	if response.GetEvidence().GetUpdatedAt() == "" {
 		t.Fatal("expected updated timestamp")
+	}
+	if response.GetEvidence().GetType() != string(domain.EvidenceIntegrationTests) || !response.GetEvidence().GetRequired() {
+		t.Fatalf("expected policy-owned evidence fields, got type=%q required=%t", response.GetEvidence().GetType(), response.GetEvidence().GetRequired())
 	}
 }
 
@@ -101,15 +120,182 @@ func TestServerValidatesRequests(t *testing.T) {
 	}
 }
 
+func TestServerMapsEvidenceUpdateErrors(t *testing.T) {
+	client, cleanup := newTestClient(t)
+	defer cleanup()
+
+	tests := []struct {
+		name    string
+		request *mergerv1.UpdateEvidenceExecutionRequest
+		code    codes.Code
+	}{
+		{
+			name: "empty status",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "integration_tests",
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "invalid status",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "integration_tests",
+				Status:         "unknown",
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "missing packet",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "missing",
+				Name:           "integration_tests",
+				Status:         "satisfied",
+			},
+			code: codes.NotFound,
+		},
+		{
+			name: "undeclared evidence",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "security_review",
+				Status:         "satisfied",
+			},
+			code: codes.NotFound,
+		},
+		{
+			name: "unattributed waiver",
+			request: &mergerv1.UpdateEvidenceExecutionRequest{
+				ChangePacketId: "cp_1",
+				Name:           "integration_tests",
+				Status:         "waived",
+			},
+			code: codes.InvalidArgument,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := client.UpdateEvidenceExecution(context.Background(), test.request)
+			if status.Code(err) != test.code {
+				t.Fatalf("expected %s, got %v", test.code, err)
+			}
+		})
+	}
+
+	_, err := client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "satisfied",
+	})
+	if err != nil {
+		t.Fatalf("satisfy evidence: %v", err)
+	}
+	_, err = client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "running",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected failed precondition, got %v", err)
+	}
+}
+
+func TestAccessUnaryServerInterceptorEnforcesRoles(t *testing.T) {
+	t.Setenv("MERGER_GRPC_READER_TOKEN", "reader-secret")
+	t.Setenv("MERGER_GRPC_WRITER_TOKEN", "writer-secret")
+	t.Setenv("MERGER_GRPC_ADMIN_TOKEN", "admin-secret")
+	authenticator, err := access.NewStaticTokenAuthenticator([]access.StaticToken{
+		{Subject: "dashboard", TokenEnv: "MERGER_GRPC_READER_TOKEN", Roles: []access.Role{access.RoleReader}},
+		{Subject: "ci", TokenEnv: "MERGER_GRPC_WRITER_TOKEN", Roles: []access.Role{access.RoleEvidenceWriter}},
+		{Subject: "operator", TokenEnv: "MERGER_GRPC_ADMIN_TOKEN", Roles: []access.Role{access.RoleAdmin}},
+	})
+	if err != nil {
+		t.Fatalf("construct authenticator: %v", err)
+	}
+
+	repository := store.NewMemoryRepository()
+	seedChangePacket(t, repository, "cp_1", 42, time.Now().UTC())
+	client, cleanup := newTestClientWithRepository(
+		t,
+		repository,
+		grpc.UnaryInterceptor(controlplanegrpc.AccessUnaryServerInterceptor(authenticator)),
+	)
+	defer cleanup()
+
+	getRequest := &mergerv1.GetChangePacketRequest{Ref: &mergerv1.ChangePacketRef{Id: "cp_1"}}
+	_, err = client.GetChangePacket(context.Background(), getRequest)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("expected missing credentials to be unauthenticated, got %v", err)
+	}
+	_, err = client.GetChangePacket(outgoingAuthorization("wrong-secret"), getRequest)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("expected invalid credentials to be unauthenticated, got %v", err)
+	}
+	_, err = client.GetChangePacket(outgoingAuthorization("writer-secret"), getRequest)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected writer read to be denied, got %v", err)
+	}
+	_, err = client.UpdateEvidenceExecution(outgoingAuthorization("reader-secret"), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "running",
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected reader update to be denied, got %v", err)
+	}
+
+	if _, err := client.GetChangePacket(outgoingAuthorization("reader-secret"), getRequest); err != nil {
+		t.Fatalf("reader get change packet: %v", err)
+	}
+	if _, err := client.UpdateEvidenceExecution(outgoingAuthorization("writer-secret"), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "running",
+	}); err != nil {
+		t.Fatalf("writer update evidence: %v", err)
+	}
+	if _, err := client.ListChangePackets(outgoingAuthorization("admin-secret"), &mergerv1.ListChangePacketsRequest{}); err != nil {
+		t.Fatalf("admin list change packets: %v", err)
+	}
+	if _, err := client.UpdateEvidenceExecution(outgoingAuthorization("admin-secret"), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1",
+		Name:           "integration_tests",
+		Status:         "satisfied",
+	}); err != nil {
+		t.Fatalf("admin update evidence: %v", err)
+	}
+}
+
+func TestAccessUnaryServerInterceptorAllowsDisabledModeWithoutMetadata(t *testing.T) {
+	repository := store.NewMemoryRepository()
+	client, cleanup := newTestClientWithRepository(
+		t,
+		repository,
+		grpc.UnaryInterceptor(controlplanegrpc.AccessUnaryServerInterceptor(access.NewDisabledAuthenticator())),
+	)
+	defer cleanup()
+
+	if _, err := client.ListChangePackets(context.Background(), &mergerv1.ListChangePacketsRequest{}); err != nil {
+		t.Fatalf("disabled access mode should allow local request without metadata: %v", err)
+	}
+}
+
 func newTestClient(t *testing.T) (mergerv1.ChangeControlServiceClient, func()) {
 	t.Helper()
 
 	repository := store.NewMemoryRepository()
 	seedChangePacket(t, repository, "cp_1", 42, time.Now().UTC())
 	seedChangePacket(t, repository, "cp_2", 43, time.Now().UTC().Add(time.Minute))
+	return newTestClientWithRepository(t, repository)
+}
+
+func newTestClientWithRepository(t *testing.T, repository store.Repository, serverOptions ...grpc.ServerOption) (mergerv1.ChangeControlServiceClient, func()) {
+	t.Helper()
 
 	service := controlplane.NewService(repository)
-	server := grpc.NewServer()
+	server := grpc.NewServer(serverOptions...)
 	mergerv1.RegisterChangeControlServiceServer(server, controlplanegrpc.NewServer(service))
 
 	listener := bufconn.Listen(1024 * 1024)
@@ -134,6 +320,20 @@ func newTestClient(t *testing.T) (mergerv1.ChangeControlServiceClient, func()) {
 	}
 
 	return mergerv1.NewChangeControlServiceClient(conn), cleanup
+}
+
+func outgoingAuthorization(token string) context.Context {
+	return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+token)
+}
+
+type limitRecordingRepository struct {
+	*store.MemoryRepository
+	limit int
+}
+
+func (r *limitRecordingRepository) ListChangePackets(ctx context.Context, limit int) ([]domain.ChangePacket, error) {
+	r.limit = limit
+	return r.MemoryRepository.ListChangePackets(ctx, limit)
 }
 
 func seedChangePacket(t *testing.T, repository *store.MemoryRepository, id string, prNumber int, updatedAt time.Time) {

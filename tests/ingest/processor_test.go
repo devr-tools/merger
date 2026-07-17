@@ -2,6 +2,8 @@ package ingest_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/devr-tools/merger/internal/domain"
@@ -92,7 +94,78 @@ func TestProcessPROpenedBuildsChangePacket(t *testing.T) {
 	}
 }
 
+func TestProcessPROpenedReturnsErrorWhenDiffRetrievalFails(t *testing.T) {
+	processor := ingest.NewProcessor(
+		telemetry.NewLogger("error"),
+		telemetry.NewTracer(),
+		events.NewMemoryBus(),
+		failingDiffGitHubService{},
+		mutations.DefaultEngine(),
+		risk.DefaultEngine(),
+		policy.NewRuleEngine(policy.Config{}),
+		lanes.NewAssigner(lanes.Config{GreenMax: 20, YellowMax: 55, RedMax: 85}),
+		stubCheckPublisher{},
+		runtimegraph.NewResolver(runtimegraph.Options{}),
+		nil,
+	)
+
+	packet, err := processor.ProcessPROpened(context.Background(), github.PullRequestWebhookPayload{
+		Repository: struct {
+			Name     string `json:"name"`
+			FullName string `json:"full_name"`
+			Owner    struct {
+				Login string `json:"login"`
+			} `json:"owner"`
+		}{
+			Name:     "repo",
+			FullName: "acme/repo",
+			Owner: struct {
+				Login string `json:"login"`
+			}{Login: "acme"},
+		},
+		PullRequest: struct {
+			Number  int    `json:"number"`
+			Title   string `json:"title"`
+			Body    string `json:"body"`
+			HTMLURL string `json:"html_url"`
+			Head    struct {
+				SHA string `json:"sha"`
+			} `json:"head"`
+			Base struct {
+				SHA string `json:"sha"`
+			} `json:"base"`
+			User struct {
+				Login string `json:"login"`
+				Type  string `json:"type"`
+			} `json:"user"`
+		}{Number: 42},
+	})
+
+	if err == nil {
+		t.Fatal("expected diff retrieval error")
+	}
+	if packet != nil {
+		t.Fatalf("expected no packet, got %#v", packet)
+	}
+	if !strings.Contains(err.Error(), "get pull request diff for acme/repo#42") {
+		t.Fatalf("expected contextual diff error, got %v", err)
+	}
+	if !errors.Is(err, errDiffUnavailable) {
+		t.Fatalf("expected original diff error to be preserved, got %v", err)
+	}
+}
+
 type stubGitHubService struct{}
+
+var errDiffUnavailable = errors.New("diff unavailable")
+
+type failingDiffGitHubService struct {
+	stubGitHubService
+}
+
+func (failingDiffGitHubService) GetPullRequestDiff(context.Context, string, string, int) (string, error) {
+	return "", errDiffUnavailable
+}
 
 func (stubGitHubService) GetPullRequest(_ context.Context, owner, repo string, number int) (github.PullRequest, error) {
 	return github.PullRequest{

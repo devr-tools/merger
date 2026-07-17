@@ -27,6 +27,10 @@ func NewRuleEngine(config Config) *RuleEngine {
 }
 
 func (e *RuleEngine) Evaluate(_ context.Context, packet domain.ChangePacket) (Evaluation, error) {
+	if err := Validate(e.config); err != nil {
+		return Evaluation{}, err
+	}
+
 	evaluation := Evaluation{
 		Decision: domain.PolicyDecision{
 			Status:    domain.DecisionApproved,

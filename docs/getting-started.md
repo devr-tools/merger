@@ -145,6 +145,19 @@ Add the `Devr Merger` action to gate pull requests on their assigned lane:
 The Action exports `lane`, `risk-score`, and `change-packet-id` outputs for use
 by later workflow steps.
 
+### GitHub Merge Queue
+
+Merger does not execute a merge queue. It supplies a required gate that GitHub
+Merge Queue reruns against the queue-generated `merge_group` commit. Use one
+workflow and the same job name for both `pull_request` and `merge_group`, then
+select **Merger change control** as a required status check in branch
+protection/rulesets. The workflow must use the merge-group `head_sha` and
+`base_sha`, not a pull-request head or moving branch name.
+
+Copy [the merge-queue workflow example](examples/github-merge-queue-gate.yml)
+into `.github/workflows/merger-change-control.yml`, adjust the action version
+and lane threshold, and enable GitHub Merge Queue for the target branch.
+
 ## Run the control plane locally
 
 The full control plane (webhook ingest, persistence, event bus) needs the local

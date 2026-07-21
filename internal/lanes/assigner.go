@@ -33,6 +33,13 @@ func (a *ThresholdAssigner) Assign(_ context.Context, packet domain.ChangePacket
 		return domain.MergeLaneBlack, nil
 	}
 
+	// An unresolved decision represents outstanding required evidence or review.
+	// Keep it out of the automatable GREEN lane so callers can gate it with
+	// the existing RED threshold while the requirements are completed.
+	if packet.Decision.Status == domain.DecisionPending || packet.Decision.Status == domain.DecisionEscalated {
+		return maxLane(domain.MergeLaneRed, packet.Decision.MinimumLane), nil
+	}
+
 	if packet.RiskSummary.Score <= a.config.GreenMax && len(packet.Reviewers) == 0 && !packet.Deployment.RequiresCanary {
 		return maxLane(domain.MergeLaneGreen, packet.Decision.MinimumLane), nil
 	}

@@ -21,7 +21,11 @@ transitions return a conflict response.
 After an update, the control plane reconciles outstanding required evidence and
 mandatory reviewers into the packet decision, recomputes its lane, persists the
 result, and refreshes the GitHub Check with current evidence statuses. Blocked
-policy decisions remain blocked.
+policy decisions remain blocked. A pending or escalated decision is assigned at
+least the `RED` lane, so required evidence cannot accidentally be reported as a
+`GREEN` change. Once the required evidence is satisfied or validly waived and
+the decision is approved, the normal risk and policy lane calculation applies
+again.
 
 ## gRPC
 

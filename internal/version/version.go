@@ -6,4 +6,4 @@ package version
 // .goreleaser.yaml). The linker's -X flag only sets string vars, so a const
 // would silently leave released binaries reporting this default. Release Please
 // keeps the default below in sync with the manifest via the marker comment.
-var Number = "1.1.0" // x-release-please-version
+var Number = "1.2.0" // x-release-please-version

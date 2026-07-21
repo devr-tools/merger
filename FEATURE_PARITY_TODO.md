@@ -10,7 +10,7 @@ work begins on the next item. Delete this file only after all items are done.
 - [x] 4. Merge queue integration
 - [x] 5. Outcome-based risk calibration
 - [x] 6. Richer runtime graph
-- [ ] 7. Pluggable analyzers
+- [x] 7. Pluggable analyzers
 - [ ] 8. GitLab/Bitbucket adapters
 - [ ] 9. Conflict-risk routing
 - [ ] 10. Agent-native workflows

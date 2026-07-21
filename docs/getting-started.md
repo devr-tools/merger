@@ -189,6 +189,22 @@ edges:
     type: calls
 ```
 
+### External mutation analyzers
+
+External analyzers are opt-in JSON-over-stdio subprocesses. Each executable
+must be an absolute path explicitly repeated in its allowlist; Merger never
+uses a shell or passes configuration arguments. The analyzer receives one
+analysis input JSON object on stdin and emits a JSON mutation array on stdout.
+
+```yaml
+mutation_analyzers:
+  - name: organization-rules
+    executable: /opt/merger/analyzers/org-rules
+    allowlist: [/opt/merger/analyzers/org-rules]
+    timeout: 5s
+    paths: ["services/**"]
+```
+
 ## Run the control plane locally
 
 The full control plane (webhook ingest, persistence, event bus) needs the local

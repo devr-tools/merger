@@ -3,6 +3,7 @@ package ingestapp
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/devr-tools/merger/internal/checks"
 	"github.com/devr-tools/merger/internal/config"
@@ -32,13 +33,27 @@ func New(
 	policyEngine policy.Engine,
 	repository store.Repository,
 ) *App {
+	externalAnalyzers := make([]mutations.Analyzer, 0, len(cfg.MutationAnalyzers))
+	for _, declaration := range cfg.MutationAnalyzers {
+		timeout := 5 * time.Second
+		if declaration.Timeout != "" {
+			if parsed, err := time.ParseDuration(declaration.Timeout); err == nil {
+				timeout = parsed
+			}
+		}
+		analyzer, err := mutations.NewExternalAnalyzer(mutations.ExternalAnalyzerConfig{Name: declaration.Name, Executable: declaration.Executable, Allowlist: declaration.Allowlist, Timeout: timeout, Paths: declaration.Paths})
+		if err != nil {
+			panic(err)
+		}
+		externalAnalyzers = append(externalAnalyzers, analyzer)
+	}
 	checkPublisher := checks.NewGitHubCheckPublisher(githubService)
 	processor := ingest.NewProcessor(
 		logger,
 		tracer,
 		bus,
 		githubService,
-		mutations.DefaultEngine(),
+		mutations.DefaultEngineWithExternal(externalAnalyzers),
 		risk.DefaultEngine(),
 		policyEngine,
 		lanes.NewAssigner(lanes.Config{

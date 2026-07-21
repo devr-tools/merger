@@ -252,7 +252,7 @@ func (r *PostgresRepository) ListEvidenceAuditEntries(ctx context.Context, chang
 	}
 	rows, err := r.db.QueryContext(ctx, `
 select id, change_packet_id, evidence_name, from_status, to_status, coalesce(actor,''), coalesce(summary,''), coalesce(details_url,''), metadata, occurred_at
-from merger_evidence_audit_entries where change_packet_id = $1 order by occurred_at desc limit $2`, changePacketID, limit)
+from merger_evidence_audit_entries where change_packet_id = $1 order by occurred_at desc, id desc limit $2`, changePacketID, limit)
 	if err != nil {
 		return nil, err
 	}

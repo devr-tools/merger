@@ -63,11 +63,11 @@ func (r *MemoryRepository) RecordEvidenceUpdate(_ context.Context, execution dom
 func (r *MemoryRepository) ListEvidenceAuditEntries(_ context.Context, changePacketID string, limit int) ([]domain.EvidenceAuditEntry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	entries := make([]domain.EvidenceAuditEntry, 0, len(r.auditByCPID[changePacketID]))
-	for _, entry := range r.auditByCPID[changePacketID] {
-		entries = append(entries, cloneAuditEntry(entry))
+	stored := r.auditByCPID[changePacketID]
+	entries := make([]domain.EvidenceAuditEntry, 0, len(stored))
+	for index := len(stored) - 1; index >= 0; index-- {
+		entries = append(entries, cloneAuditEntry(stored[index]))
 	}
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].OccurredAt.After(entries[j].OccurredAt) })
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}

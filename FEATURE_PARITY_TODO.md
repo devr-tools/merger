@@ -11,6 +11,6 @@ work begins on the next item. Delete this file only after all items are done.
 - [x] 5. Outcome-based risk calibration
 - [x] 6. Richer runtime graph
 - [x] 7. Pluggable analyzers
-- [ ] 8. GitLab/Bitbucket adapters
+- [x] 8. GitLab/Bitbucket adapters
 - [ ] 9. Conflict-risk routing
 - [ ] 10. Agent-native workflows

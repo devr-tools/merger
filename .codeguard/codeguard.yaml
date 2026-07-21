@@ -59,6 +59,12 @@ waivers:
       `merger scan -base-ref` shells out to `git diff` with a fixed argv and no
       shell interpolation to obtain the diff to analyze. The invocation is
       constrained and reviewed.
+  - rule: security.shell-execution
+    path: internal/mutations/analyzer_external.go
+    reason: >-
+      External analyzers are opt-in and run only from an exact allowlisted
+      absolute executable path, without a shell or caller-provided arguments,
+      under a bounded context timeout.
 baseline:
   # Pre-existing findings captured at codeguard adoption. Paths resolve inside
   # the config directory, so this is .codeguard/baseline.json. Regenerate with

@@ -110,6 +110,47 @@ func TestHTTPHandlerListsImmutableEvidenceAuditHistory(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerRecordsBoundedOutcomeAndReportsCalibration(t *testing.T) {
+	repo := seedRepository(t)
+	packet, err := repo.GetChangePacket(context.Background(), "cp_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet.RiskSummary.Contributors = []domain.RiskType{domain.RiskType("authentication")}
+	if err := repo.SaveChangePacket(context.Background(), packet); err != nil {
+		t.Fatal(err)
+	}
+	handler := controlplane.NewHTTPHandler(controlplane.NewService(repo))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/change-packets/cp_1/outcomes", bytes.NewBufferString(`{"outcome":"incident","source":"deploy-controller"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("record outcome: %d %s", rec.Code, rec.Body.String())
+	}
+	var outcome domain.DeploymentOutcome
+	if err := json.NewDecoder(rec.Body).Decode(&outcome); err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Lane != domain.MergeLaneYellow || len(outcome.RiskTypes) != 1 || outcome.ID == "" {
+		t.Fatalf("expected packet risk snapshot, got %#v", outcome)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/risk-calibration", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report calibration: %d", rec.Code)
+	}
+	var report domain.RiskCalibrationReport
+	if err := json.NewDecoder(rec.Body).Decode(&report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.ByLane) != 1 || report.ByLane[0].Adverse != 1 || report.ByLane[0].Recommendation == "" {
+		t.Fatalf("unexpected calibration report: %#v", report)
+	}
+}
+
 func TestHTTPHandlerRejectsInvalidEvidenceUpdates(t *testing.T) {
 	tests := []struct {
 		name       string

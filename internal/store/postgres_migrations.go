@@ -56,5 +56,15 @@ func postgresMigrations() []string {
 			occurred_at timestamptz not null
 		)`,
 		`create index if not exists idx_merger_evidence_audit_entries_packet_time on merger_evidence_audit_entries (change_packet_id, occurred_at desc)`,
+		`create table if not exists merger_deployment_outcomes (
+			id text primary key,
+			change_packet_id text not null,
+			outcome text not null,
+			source text,
+			lane text not null,
+			risk_types jsonb,
+			observed_at timestamptz not null
+		)`,
+		`create index if not exists idx_merger_deployment_outcomes_observed_at on merger_deployment_outcomes (observed_at desc)`,
 	}
 }

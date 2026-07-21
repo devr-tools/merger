@@ -16,6 +16,25 @@ type MemoryRepository struct {
 	events         map[string]events.Envelope
 	evidenceByCPID map[string]map[string]domain.EvidenceExecution
 	auditByCPID    map[string][]domain.EvidenceAuditEntry
+	outcomes       []domain.DeploymentOutcome
+}
+
+func (r *MemoryRepository) SaveDeploymentOutcome(_ context.Context, outcome domain.DeploymentOutcome) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outcomes = append(r.outcomes, outcome)
+	return nil
+}
+
+func (r *MemoryRepository) ListDeploymentOutcomes(_ context.Context, limit int) ([]domain.DeploymentOutcome, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	items := append([]domain.DeploymentOutcome(nil), r.outcomes...)
+	sort.SliceStable(items, func(i, j int) bool { return items[i].ObservedAt.After(items[j].ObservedAt) })
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 func NewMemoryRepository() *MemoryRepository {

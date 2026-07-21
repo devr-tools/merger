@@ -272,6 +272,39 @@ from merger_evidence_audit_entries where change_packet_id = $1 order by occurred
 	return entries, rows.Err()
 }
 
+func (r *PostgresRepository) SaveDeploymentOutcome(ctx context.Context, outcome domain.DeploymentOutcome) error {
+	riskTypes, err := json.Marshal(outcome.RiskTypes)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `insert into merger_deployment_outcomes (id, change_packet_id, outcome, source, lane, risk_types, observed_at) values ($1,$2,$3,$4,$5,$6,$7)`, outcome.ID, outcome.ChangePacketID, outcome.Outcome, outcome.Source, outcome.Lane, string(riskTypes), outcome.ObservedAt)
+	return err
+}
+
+func (r *PostgresRepository) ListDeploymentOutcomes(ctx context.Context, limit int) ([]domain.DeploymentOutcome, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := r.db.QueryContext(ctx, `select id, change_packet_id, outcome, coalesce(source,''), lane, risk_types, observed_at from merger_deployment_outcomes order by observed_at desc limit $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.DeploymentOutcome, 0, limit)
+	for rows.Next() {
+		var item domain.DeploymentOutcome
+		var riskTypes []byte
+		if err := rows.Scan(&item.ID, &item.ChangePacketID, &item.Outcome, &item.Source, &item.Lane, &riskTypes, &item.ObservedAt); err != nil {
+			return nil, err
+		}
+		if len(riskTypes) > 0 {
+			_ = json.Unmarshal(riskTypes, &item.RiskTypes)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (r *PostgresRepository) ListEvidenceExecutions(ctx context.Context, changePacketID string) ([]domain.EvidenceExecution, error) {
 	rows, err := r.db.QueryContext(ctx, `
 select change_packet_id, evidence_name, evidence_type, status, required, coalesce(summary,''), coalesce(details_url,''), coalesce(updated_by,''), metadata, updated_at

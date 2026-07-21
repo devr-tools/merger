@@ -260,6 +260,21 @@ curl -H "Authorization: Bearer $MERGER_DASHBOARD_TOKEN" \
 Audit records are append-only. GitHub check reconciliation records its trusted
 check-run, app, and commit provenance in the entry metadata.
 
+### Outcome-based calibration
+
+Record a bounded deployment outcome after delivery; Merger stores only the
+outcome kind (`success`, `rollback`, or `incident`), source, time, and the
+packet's lane/risk-type snapshot—never logs or incident narratives. The
+calibration report aggregates sample count and adverse rate by lane and risk
+type, and provides recommendations without changing policy thresholds.
+
+```bash
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"outcome":"success","source":"deploy-controller"}' \
+  http://localhost:8081/api/v1/change-packets/cp_example/outcomes
+curl http://localhost:8081/api/v1/risk-calibration
+```
+
 Tear the stack down with `make compose-down`.
 
 ### 3. Verify

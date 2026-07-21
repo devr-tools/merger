@@ -28,10 +28,16 @@ type EvidenceExecutionStore interface {
 	ListEvidenceAuditEntries(context.Context, string, int) ([]domain.EvidenceAuditEntry, error)
 }
 
+type DeploymentOutcomeStore interface {
+	SaveDeploymentOutcome(context.Context, domain.DeploymentOutcome) error
+	ListDeploymentOutcomes(context.Context, int) ([]domain.DeploymentOutcome, error)
+}
+
 type Repository interface {
 	ChangePacketStore
 	EventStore
 	EvidenceExecutionStore
+	DeploymentOutcomeStore
 	Migrate(context.Context) error
 	Close() error
 }

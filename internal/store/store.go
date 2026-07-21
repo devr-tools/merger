@@ -13,6 +13,7 @@ var ErrChangePacketNotFound = errors.New("change packet not found")
 type ChangePacketStore interface {
 	SaveChangePacket(context.Context, domain.ChangePacket) error
 	GetChangePacket(context.Context, string) (domain.ChangePacket, error)
+	FindLatestChangePacket(context.Context, string, int, string) (domain.ChangePacket, error)
 	ListChangePackets(context.Context, int) ([]domain.ChangePacket, error)
 }
 

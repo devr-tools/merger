@@ -14,7 +14,9 @@ func postgresMigrations() []string {
 			created_at timestamptz not null,
 			updated_at timestamptz not null
 		)`,
+		`alter table merger_change_packets add column if not exists head_sha text`,
 		`create index if not exists idx_merger_change_packets_repo_pr on merger_change_packets (repo_full_name, pr_number)`,
+		`create index if not exists idx_merger_change_packets_exact_head on merger_change_packets (repo_full_name, pr_number, head_sha, updated_at desc)`,
 		`create table if not exists merger_event_log (
 			id text primary key,
 			event_type text not null,

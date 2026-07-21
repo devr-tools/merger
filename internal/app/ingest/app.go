@@ -6,6 +6,7 @@ import (
 
 	"github.com/devr-tools/merger/internal/checks"
 	"github.com/devr-tools/merger/internal/config"
+	"github.com/devr-tools/merger/internal/controlplane"
 	"github.com/devr-tools/merger/internal/events"
 	"github.com/devr-tools/merger/internal/github"
 	"github.com/devr-tools/merger/internal/ingest"
@@ -31,6 +32,7 @@ func New(
 	policyEngine policy.Engine,
 	repository store.Repository,
 ) *App {
+	checkPublisher := checks.NewGitHubCheckPublisher(githubService)
 	processor := ingest.NewProcessor(
 		logger,
 		tracer,
@@ -44,11 +46,18 @@ func New(
 			YellowMax: cfg.Lanes.YellowMax,
 			RedMax:    cfg.Lanes.RedMax,
 		}),
-		checks.NewGitHubCheckPublisher(githubService),
+		checkPublisher,
 		runtimegraph.NewResolver(runtimegraph.Options{
 			EnableCodeOwners: cfg.RuntimeGraph.EnableCodeOwners,
 		}),
 		repository,
+		controlplane.NewServiceWithOptions(
+			repository,
+			controlplane.WithLaneAssigner(lanes.NewAssigner(lanes.Config{
+				GreenMax: cfg.Lanes.GreenMax, YellowMax: cfg.Lanes.YellowMax, RedMax: cfg.Lanes.RedMax,
+			})),
+			controlplane.WithCheckPublisher(checkPublisher),
+		),
 	)
 
 	mux := http.NewServeMux()

@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/devr-tools/merger/internal/github"
@@ -28,6 +29,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx = telemetry.WithCorrelationID(ctx, webhook.DeliveryID)
+	if webhook.Event == "check_run" {
+		if webhook.CheckRun == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if err := h.processor.ProcessCheckRun(ctx, *webhook.CheckRun); err != nil {
+			log.Printf("reconcile GitHub check run: %v", err)
+			http.Error(w, "unable to reconcile check run", http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	if webhook.Event != "pull_request" {
 		w.WriteHeader(http.StatusAccepted)
 		return

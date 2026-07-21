@@ -90,13 +90,16 @@ func (p *Processor) finalize(ctx context.Context, packet *domain.ChangePacket) e
 		return err
 	}
 
-	if err := p.checks.Publish(ctx, *packet); err != nil {
-		return err
-	}
 	if p.store != nil {
 		if err := p.store.SaveChangePacket(ctx, *packet); err != nil {
 			return err
 		}
+	}
+	// Persist before creating the GitHub check run. GitHub can deliver a
+	// check_run webhook immediately after creation; storing first guarantees
+	// reconciliation can bind that webhook to this exact packet.
+	if err := p.checks.Publish(ctx, *packet); err != nil {
+		return err
 	}
 
 	p.logger.Info("processed pull request",

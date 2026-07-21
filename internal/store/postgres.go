@@ -54,10 +54,11 @@ func (r *PostgresRepository) SaveChangePacket(ctx context.Context, packet domain
 
 	query := `
 insert into merger_change_packets (
-  id, repo_full_name, pr_number, author_login, merge_lane, risk_score, decision_status, payload, created_at, updated_at
+  id, repo_full_name, pr_number, head_sha, author_login, merge_lane, risk_score, decision_status, payload, created_at, updated_at
 )
-values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 on conflict (id) do update set
+  head_sha = excluded.head_sha,
   merge_lane = excluded.merge_lane,
   risk_score = excluded.risk_score,
   decision_status = excluded.decision_status,
@@ -70,6 +71,7 @@ on conflict (id) do update set
 		packet.ID,
 		packet.Repo.FullName,
 		packet.PR.Number,
+		packet.PR.HeadSHA,
 		packet.Author.Login,
 		packet.MergeLane,
 		packet.RiskSummary.Score,
@@ -87,6 +89,26 @@ on conflict (id) do update set
 	}
 
 	return tx.Commit()
+}
+
+func (r *PostgresRepository) FindLatestChangePacket(ctx context.Context, repoFullName string, prNumber int, headSHA string) (domain.ChangePacket, error) {
+	var payload []byte
+	err := r.db.QueryRowContext(ctx, `
+select payload from merger_change_packets
+where repo_full_name = $1 and pr_number = $2 and head_sha = $3
+order by updated_at desc
+limit 1`, repoFullName, prNumber, headSHA).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ChangePacket{}, ErrChangePacketNotFound
+	}
+	if err != nil {
+		return domain.ChangePacket{}, err
+	}
+	var packet domain.ChangePacket
+	if err := json.Unmarshal(payload, &packet); err != nil {
+		return domain.ChangePacket{}, err
+	}
+	return packet, nil
 }
 
 func (r *PostgresRepository) SaveEvent(ctx context.Context, event events.Envelope) error {

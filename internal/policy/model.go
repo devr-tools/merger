@@ -23,9 +23,18 @@ type WhenClause struct {
 }
 
 type RequirementClause struct {
-	Reviewers  []string         `yaml:"reviewers"`
-	Evidence   []string         `yaml:"evidence"`
-	Deployment DeploymentClause `yaml:"deployment"`
+	Reviewers    []string             `yaml:"reviewers"`
+	Evidence     []string             `yaml:"evidence"`
+	GitHubChecks []GitHubCheckBinding `yaml:"github_checks"`
+	Deployment   DeploymentClause     `yaml:"deployment"`
+}
+
+// GitHubCheckBinding requires an immutable App ID to prevent a same-name check
+// from another GitHub App from satisfying policy evidence.
+type GitHubCheckBinding struct {
+	Evidence string `yaml:"evidence"`
+	Name     string `yaml:"name"`
+	AppID    int64  `yaml:"app_id"`
 }
 
 type DeploymentClause struct {

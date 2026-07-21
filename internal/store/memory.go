@@ -45,6 +45,26 @@ func (r *MemoryRepository) GetChangePacket(_ context.Context, id string) (domain
 	return packet, nil
 }
 
+func (r *MemoryRepository) FindLatestChangePacket(_ context.Context, repoFullName string, prNumber int, headSHA string) (domain.ChangePacket, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var latest domain.ChangePacket
+	found := false
+	for _, packet := range r.changePackets {
+		if packet.Repo.FullName != repoFullName || packet.PR.Number != prNumber || packet.PR.HeadSHA != headSHA {
+			continue
+		}
+		if !found || packet.UpdatedAt.After(latest.UpdatedAt) {
+			latest, found = packet, true
+		}
+	}
+	if !found {
+		return domain.ChangePacket{}, ErrChangePacketNotFound
+	}
+	return latest, nil
+}
+
 func (r *MemoryRepository) ListChangePackets(_ context.Context, limit int) ([]domain.ChangePacket, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

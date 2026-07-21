@@ -121,6 +121,27 @@ func TestValidateAllowsExtensibleEvidenceNames(t *testing.T) {
 	}
 }
 
+func TestValidateGitHubCheckBindings(t *testing.T) {
+	rule := validRule("bound_evidence")
+	rule.Require = policy.RequirementClause{
+		Evidence:     []string{"integration_tests"},
+		GitHubChecks: []policy.GitHubCheckBinding{{Evidence: "integration_tests", Name: "CI / integration", AppID: 123}},
+	}
+	if err := policy.Validate(policy.Config{Policies: []policy.RuleConfig{rule}}); err != nil {
+		t.Fatalf("expected valid explicit GitHub binding, got %v", err)
+	}
+
+	for _, binding := range []policy.GitHubCheckBinding{
+		{Evidence: "integration_tests", Name: "CI", AppID: 0},
+		{Evidence: "not_declared", Name: "CI", AppID: 123},
+	} {
+		rule.Require.GitHubChecks = []policy.GitHubCheckBinding{binding}
+		if err := policy.Validate(policy.Config{Policies: []policy.RuleConfig{rule}}); err == nil {
+			t.Fatalf("expected binding %#v to be rejected", binding)
+		}
+	}
+}
+
 func validRule(name string) policy.RuleConfig {
 	return policy.RuleConfig{
 		Name:   name,

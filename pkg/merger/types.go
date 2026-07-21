@@ -17,6 +17,7 @@ type MutationSignal = domain.MutationSignal
 type Risk = domain.Risk
 type RiskSummary = domain.RiskSummary
 type EvidenceRequirement = domain.EvidenceRequirement
+type EvidenceGitHubCheckBinding = domain.GitHubCheckBinding
 type MergeLane = domain.MergeLane
 type RuntimeImpact = domain.RuntimeImpact
 type OwnershipBoundary = domain.OwnershipBoundary

@@ -45,6 +45,8 @@ var supportedDeploymentStrategies = map[string]struct{}{
 // produce a meaningful requirement or decision.
 func Validate(config Config) error {
 	names := make(map[string]struct{}, len(config.Policies))
+	evidenceBindings := make(map[string]GitHubCheckBinding)
+	checkBindings := make(map[githubCheckIdentity]string)
 	for index, rule := range config.Policies {
 		label := fmt.Sprintf("policy[%d]", index)
 		name := strings.TrimSpace(rule.Name)
@@ -60,8 +62,24 @@ func Validate(config Config) error {
 		if err := validateRule(label+" ("+name+")", rule); err != nil {
 			return err
 		}
+		for _, binding := range rule.Require.GitHubChecks {
+			if existing, ok := evidenceBindings[binding.Evidence]; ok && existing != binding {
+				return fmt.Errorf("evidence %q has conflicting GitHub check bindings", binding.Evidence)
+			}
+			evidenceBindings[binding.Evidence] = binding
+			identity := githubCheckIdentity{Name: binding.Name, AppID: binding.AppID}
+			if evidence, ok := checkBindings[identity]; ok && evidence != binding.Evidence {
+				return fmt.Errorf("GitHub check %q from app %d is bound to both evidence %q and %q", binding.Name, binding.AppID, evidence, binding.Evidence)
+			}
+			checkBindings[identity] = binding.Evidence
+		}
 	}
 	return nil
+}
+
+type githubCheckIdentity struct {
+	Name  string
+	AppID int64
 }
 
 func validateRule(label string, rule RuleConfig) error {

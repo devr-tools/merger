@@ -139,6 +139,12 @@ policies:
         - security
       evidence:
         - auth_integration_tests
+      # Only this exact check from this GitHub App may automatically satisfy
+      # the declared evidence. Legacy scalar evidence is never auto-satisfied.
+      github_checks:
+        - evidence: auth_integration_tests
+          name: CI / auth integration
+          app_id: 12345
       deployment:
         strategy: canary
         requires_canary: true

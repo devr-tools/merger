@@ -195,6 +195,9 @@ func writeTextReport(w io.Writer, packet *domain.ChangePacket, explain bool) {
 			if evidence.Required {
 				label += " (required)"
 			}
+			if evidence.GitHubCheck != nil {
+				label += fmt.Sprintf(" [GitHub check: %s / app %d]", evidence.GitHubCheck.Name, evidence.GitHubCheck.AppID)
+			}
 			labels = append(labels, label)
 		}
 		fmt.Fprintf(w, "evidence:   %s\n", strings.Join(labels, ", "))

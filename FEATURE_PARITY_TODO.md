@@ -6,7 +6,7 @@ work begins on the next item. Delete this file only after all items are done.
 
 - [x] 1. Automated GitHub check reconciliation
 - [x] 2. Evidence provenance and audit history
-- [ ] 3. Policy-driven check bindings
+- [x] 3. Policy-driven check bindings
 - [ ] 4. Merge queue integration
 - [ ] 5. Outcome-based risk calibration
 - [ ] 6. Richer runtime graph

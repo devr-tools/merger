@@ -14,6 +14,9 @@ type ScanOptions = scan.Options
 
 // PolicyConfig is a merger policy rule set.
 type PolicyConfig = policy.Config
+type PolicyRule = policy.RuleConfig
+type PolicyRequirements = policy.RequirementClause
+type GitHubCheckBinding = policy.GitHubCheckBinding
 
 // LanesConfig configures merge-lane thresholds.
 type LanesConfig = lanes.Config

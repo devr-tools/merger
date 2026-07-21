@@ -1,4 +1,10 @@
 policies:
+  # To auto-reconcile evidence from GitHub checks, add a github_checks binding
+  # beneath require, e.g.:
+  # github_checks:
+  #   - evidence: integration_tests
+  #     name: CI / integration
+  #     app_id: 12345
   - name: auth_requires_security_review
     description: Authentication and authorization mutations require security evidence and controlled rollout.
     when:

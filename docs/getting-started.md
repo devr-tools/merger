@@ -92,12 +92,23 @@ policies:
         - security
       evidence:
         - auth_integration_tests
+      github_checks:
+        - evidence: auth_integration_tests
+          name: CI / auth integration
+          app_id: 12345
       deployment:
         strategy: canary
         requires_canary: true
     action:
       minimum_lane: RED
 ```
+
+`github_checks` optionally authorizes automatic evidence reconciliation from
+GitHub `check_run` webhooks. A binding must reference an evidence item declared
+in the same rule and includes both the exact check name and the numeric GitHub
+App ID. Merger rejects a check/App pair bound to different evidence items and
+rejects conflicting bindings for the same evidence across policies. Scalar
+`evidence` entries remain manual unless explicitly bound.
 
 ## MCP server
 

@@ -63,6 +63,7 @@ func (a externalAnalyzer) Analyze(ctx context.Context, input AnalysisInput) ([]d
 	if err != nil {
 		return nil, err
 	}
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- constructor requires an exact allowlisted absolute executable and this call supplies no arguments or shell.
 	cmd := exec.CommandContext(ctx, a.config.Executable)
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.Output()

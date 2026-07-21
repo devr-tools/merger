@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/devr-tools/merger/internal/conflictrisk"
 	"github.com/devr-tools/merger/internal/domain"
 	"github.com/devr-tools/merger/internal/github"
 	"github.com/devr-tools/merger/internal/mutations"
@@ -45,6 +46,7 @@ func (p *Processor) enrichRuntimeImpact(ctx context.Context, packet *domain.Chan
 }
 
 func (p *Processor) enrichRisk(ctx context.Context, packet *domain.ChangePacket) error {
+	packet.Conflict = conflictrisk.Analyze(*packet)
 	riskSummary, risks, err := p.risk.Evaluate(ctx, *packet)
 	if err != nil {
 		return err

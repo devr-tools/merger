@@ -85,3 +85,43 @@ func TestUnknownToolIsInvalidParams(t *testing.T) {
 		t.Fatalf("expected unknown tool error, got:\n%s", joined)
 	}
 }
+
+func TestAgentWorkflowToolsExplainPlanAndCheckReadiness(t *testing.T) {
+	packet := map[string]any{
+		"id": "cp_agent", "mergeLane": "RED",
+		"decision":    map[string]any{"status": "approved", "summary": "policy requirements recorded"},
+		"riskSummary": map[string]any{"score": 72, "severity": "high", "contributors": []string{"security"}},
+		"mutations":   []map[string]any{{"kind": "auth_behavior_change", "severity": "high", "title": "Authentication behavior changed"}},
+		"risks":       []map[string]any{{"type": "security", "severity": "high", "summary": "Authentication surface changed", "mitigations": []string{"Run authentication tests"}}},
+		"evidence":    []map[string]any{{"name": "auth tests", "type": "auth_integration_tests", "required": true, "reason": "authentication changed", "githubCheck": map[string]any{"name": "CI / auth", "appId": 42}}},
+		"reviewers":   []map[string]any{{"team": "security", "mandatory": true, "reason": "auth review"}},
+	}
+	packetJSON, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	lines := drive(t,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"merger_explain","arguments":{"change_packet":`+string(packetJSON)+`}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"merger_plan_evidence","arguments":{"change_packet":`+string(packetJSON)+`}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"merger_check_readiness","arguments":{"change_packet":`+string(packetJSON)+`}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"merger_check_readiness","arguments":{"change_packet":`+string(packetJSON)+`,"completed_evidence":["auth tests"],"completed_reviews":["security"]}}}`,
+	)
+	joined := strings.Join(lines, "\n")
+	for _, tool := range []string{"merger_explain", "merger_plan_evidence", "merger_check_readiness"} {
+		if !strings.Contains(joined, tool) {
+			t.Fatalf("expected %s in tools/list, got:\n%s", tool, joined)
+		}
+	}
+	if !strings.Contains(joined, "trustedGitHubCheck") {
+		t.Fatalf("expected trusted check in evidence plan, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "required evidence not verified: auth tests") {
+		t.Fatalf("expected unverified evidence blocker, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, `\"ready\": true`) {
+		t.Fatalf("expected readiness after verified inputs, got:\n%s", joined)
+	}
+}

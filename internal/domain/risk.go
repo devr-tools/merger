@@ -9,6 +9,7 @@ const (
 	RiskDependency RiskType = "dependency"
 	RiskRollout    RiskType = "rollout"
 	RiskOwnership  RiskType = "ownership"
+	RiskConflict   RiskType = "conflict"
 )
 
 type Risk struct {

@@ -41,3 +41,19 @@ func TestDefaultEngineScoresDataAccessMutation(t *testing.T) {
 		t.Fatalf("expected data-access mitigations, got %#v", risks[0].Mitigations)
 	}
 }
+
+func TestDefaultEngineIncludesConflictRisk(t *testing.T) {
+	packet := domain.ChangePacket{Conflict: domain.ConflictAssessment{
+		Score:       25,
+		Findings:    []domain.ConflictFinding{{Kind: "base_drift", Paths: []string{".github/workflows/release.yml"}}},
+		Mitigations: []string{"update the change"},
+	}}
+
+	summary, risks, err := risk.DefaultEngine().Evaluate(context.Background(), packet)
+	if err != nil {
+		t.Fatalf("evaluate risk: %v", err)
+	}
+	if summary.Score != 25 || len(risks) != 1 || risks[0].Type != domain.RiskConflict {
+		t.Fatalf("expected conflict risk, got summary=%#v risks=%#v", summary, risks)
+	}
+}

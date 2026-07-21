@@ -82,3 +82,20 @@ func TestAssignerPreservesStricterPendingMinimumLane(t *testing.T) {
 		t.Fatalf("expected BLACK policy minimum lane to be preserved, got %s", lane)
 	}
 }
+
+func TestAssignerRoutesConflictRiskSafely(t *testing.T) {
+	assigner := lanes.NewAssigner(lanes.Config{GreenMax: 20, YellowMax: 55, RedMax: 85})
+	basePacket := domain.ChangePacket{Decision: domain.PolicyDecision{Status: domain.DecisionApproved}}
+
+	basePacket.Conflict = domain.ConflictAssessment{Route: domain.ConflictRouteRefreshAndVerify}
+	lane, err := assigner.Assign(context.Background(), basePacket)
+	if err != nil || lane != domain.MergeLaneRed {
+		t.Fatalf("expected drift to route RED, lane=%s err=%v", lane, err)
+	}
+
+	basePacket.Conflict = domain.ConflictAssessment{Route: domain.ConflictRouteHumanResolution, RequiresHumanResolution: true}
+	lane, err = assigner.Assign(context.Background(), basePacket)
+	if err != nil || lane != domain.MergeLaneBlack {
+		t.Fatalf("expected unresolved markers to route BLACK, lane=%s err=%v", lane, err)
+	}
+}

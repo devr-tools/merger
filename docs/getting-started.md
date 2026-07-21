@@ -205,6 +205,25 @@ mutation_analyzers:
     paths: ["services/**"]
 ```
 
+### Conflict-risk routing
+
+Every scan also checks the proposed diff for unresolved conflict markers,
+duplicate normalized file entries, and policy-sensitive paths (such as
+CODEOWNERS, deployment workflows, and schema or migration files). When the
+caller supplies both the change's base SHA and the target branch's current SHA,
+Merger additionally detects base drift. Findings are recorded in the Change
+Packet's `conflict` field and reflected in the risk score.
+
+Merger never resolves a conflict or rewrites the change. It routes ordinary
+drift and policy-sensitive concurrent-edit risk to `refresh_and_verify` (RED),
+and unresolved conflict markers to `human_resolution` (BLACK). The JSON output
+includes the exact findings, affected paths, and mitigations so a merge queue
+or agent can take the prescribed next step.
+
+SDK callers can set `ScanOptions.BaseSHA` and `ScanOptions.CurrentBaseSHA` when
+they have freshly read the target branch; webhook integrations set
+`current_base_sha` packet metadata when that value is available.
+
 ## Run the control plane locally
 
 The full control plane (webhook ingest, persistence, event bus) needs the local

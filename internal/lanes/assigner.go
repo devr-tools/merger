@@ -28,6 +28,12 @@ func (a *ThresholdAssigner) Assign(_ context.Context, packet domain.ChangePacket
 	if packet.Decision.Status == domain.DecisionBlocked {
 		return domain.MergeLaneBlack, nil
 	}
+	if packet.Conflict.RequiresHumanResolution {
+		return domain.MergeLaneBlack, nil
+	}
+	if packet.Conflict.Route == domain.ConflictRouteRefreshAndVerify {
+		return maxLane(domain.MergeLaneRed, packet.Decision.MinimumLane), nil
+	}
 
 	if packet.Decision.MinimumLane != "" && packet.Decision.MinimumLane == domain.MergeLaneBlack {
 		return domain.MergeLaneBlack, nil

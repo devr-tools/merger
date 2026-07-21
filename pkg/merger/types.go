@@ -16,6 +16,9 @@ type MutationKind = domain.MutationKind
 type MutationSignal = domain.MutationSignal
 type Risk = domain.Risk
 type RiskSummary = domain.RiskSummary
+type ConflictAssessment = domain.ConflictAssessment
+type ConflictFinding = domain.ConflictFinding
+type ConflictRoute = domain.ConflictRoute
 type EvidenceRequirement = domain.EvidenceRequirement
 type EvidenceGitHubCheckBinding = domain.GitHubCheckBinding
 type MergeLane = domain.MergeLane
@@ -33,10 +36,13 @@ type GraphNode = runtimegraph.Node
 type GraphEdge = runtimegraph.Edge
 
 const (
-	EventPROpened                = events.EventPROpened
-	EventChangePacketCreated     = events.EventChangePacketCreated
-	EventMutationDetected        = events.EventMutationDetected
-	EventRiskAssigned            = events.EventRiskAssigned
-	EventMergeLaneAssigned       = events.EventMergeLaneAssigned
-	EventPolicyViolationDetected = events.EventPolicyViolationDetected
+	EventPROpened                 = events.EventPROpened
+	EventChangePacketCreated      = events.EventChangePacketCreated
+	EventMutationDetected         = events.EventMutationDetected
+	EventRiskAssigned             = events.EventRiskAssigned
+	EventMergeLaneAssigned        = events.EventMergeLaneAssigned
+	EventPolicyViolationDetected  = events.EventPolicyViolationDetected
+	ConflictRouteNone             = domain.ConflictRouteNone
+	ConflictRouteRefreshAndVerify = domain.ConflictRouteRefreshAndVerify
+	ConflictRouteHumanResolution  = domain.ConflictRouteHumanResolution
 )

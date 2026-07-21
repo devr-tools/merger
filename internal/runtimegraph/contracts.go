@@ -23,7 +23,9 @@ type ResolutionInput struct {
 }
 
 type Options struct {
-	EnableCodeOwners bool
+	EnableCodeOwners  bool
+	GraphManifestPath string
+	MaxTraversalDepth int
 }
 
 type Resolver interface {
@@ -42,4 +44,5 @@ type Fragment struct {
 	Ownership   []domain.OwnershipBoundary
 	Notes       []string
 	Criticality domain.Criticality
+	Affected    []string
 }

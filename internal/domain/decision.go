@@ -16,11 +16,20 @@ const (
 )
 
 type EvidenceRequirement struct {
-	Type     EvidenceType `json:"type"`
-	Name     string       `json:"name"`
-	Required bool         `json:"required"`
-	Reason   string       `json:"reason,omitempty"`
-	Producer string       `json:"producer,omitempty"`
+	Type        EvidenceType        `json:"type"`
+	Name        string              `json:"name"`
+	Required    bool                `json:"required"`
+	Reason      string              `json:"reason,omitempty"`
+	Producer    string              `json:"producer,omitempty"`
+	GitHubCheck *GitHubCheckBinding `json:"githubCheck,omitempty"`
+}
+
+// GitHubCheckBinding identifies the only GitHub check that may automatically
+// satisfy an evidence requirement. Both fields are required so a check with
+// the same display name from another GitHub App cannot satisfy policy.
+type GitHubCheckBinding struct {
+	Name  string `json:"name"`
+	AppID int64  `json:"appId"`
 }
 
 type MergeLane string

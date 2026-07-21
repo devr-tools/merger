@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/devr-tools/merger/internal/domain"
 	"github.com/devr-tools/merger/internal/lanes"
 	"github.com/devr-tools/merger/internal/store"
+	"github.com/devr-tools/merger/pkg/identity"
 )
 
 type CheckPublisher interface {
@@ -25,8 +27,9 @@ type Service struct {
 }
 
 type ChangePacketView struct {
-	Packet   domain.ChangePacket        `json:"packet"`
-	Evidence []domain.EvidenceExecution `json:"evidence"`
+	Packet   domain.ChangePacket         `json:"packet"`
+	Evidence []domain.EvidenceExecution  `json:"evidence"`
+	Audit    []domain.EvidenceAuditEntry `json:"audit"`
 }
 
 func NewService(repository store.Repository) *Service {
@@ -64,11 +67,112 @@ func (s *Service) GetChangePacket(ctx context.Context, id string) (ChangePacketV
 	if err != nil {
 		return ChangePacketView{}, err
 	}
-	return ChangePacketView{Packet: packet, Evidence: evidence}, nil
+	audit, err := s.repository.ListEvidenceAuditEntries(ctx, id, DefaultListLimit)
+	if err != nil {
+		return ChangePacketView{}, err
+	}
+	return ChangePacketView{Packet: packet, Evidence: evidence, Audit: audit}, nil
+}
+
+func (s *Service) ListEvidenceAuditEntries(ctx context.Context, changePacketID string, limit int) ([]domain.EvidenceAuditEntry, error) {
+	if _, err := s.repository.GetChangePacket(ctx, changePacketID); err != nil {
+		return nil, err
+	}
+	return s.repository.ListEvidenceAuditEntries(ctx, changePacketID, limit)
 }
 
 func (s *Service) ListChangePackets(ctx context.Context, limit int) ([]domain.ChangePacket, error) {
 	return s.repository.ListChangePackets(ctx, limit)
+}
+
+func (s *Service) RecordDeploymentOutcome(ctx context.Context, outcome domain.DeploymentOutcome) (domain.DeploymentOutcome, error) {
+	if strings.TrimSpace(outcome.ChangePacketID) == "" {
+		return domain.DeploymentOutcome{}, &EvidenceValidationError{Field: "changePacketId", Message: "is required"}
+	}
+	if !validDeploymentOutcome(outcome.Outcome) {
+		return domain.DeploymentOutcome{}, &EvidenceValidationError{Field: "outcome", Message: "must be one of success, rollback, or incident"}
+	}
+	if !validOutcomeSource(outcome.Source) {
+		return domain.DeploymentOutcome{}, &EvidenceValidationError{Field: "source", Message: "must contain only letters, numbers, dot, underscore, or hyphen and be 64 characters or fewer"}
+	}
+	packet, err := s.repository.GetChangePacket(ctx, outcome.ChangePacketID)
+	if err != nil {
+		return domain.DeploymentOutcome{}, err
+	}
+	if outcome.ID == "" {
+		outcome.ID = identity.New("outcome")
+	}
+	if outcome.ObservedAt.IsZero() {
+		outcome.ObservedAt = time.Now().UTC()
+	}
+	outcome.Lane = packet.MergeLane
+	outcome.RiskTypes = append([]domain.RiskType(nil), packet.RiskSummary.Contributors...)
+	if err := s.repository.SaveDeploymentOutcome(ctx, outcome); err != nil {
+		return domain.DeploymentOutcome{}, err
+	}
+	return outcome, nil
+}
+
+func (s *Service) RiskCalibrationReport(ctx context.Context) (domain.RiskCalibrationReport, error) {
+	outcomes, err := s.repository.ListDeploymentOutcomes(ctx, 10000)
+	if err != nil {
+		return domain.RiskCalibrationReport{}, err
+	}
+	byRisk := make(map[string]*calibrationCounter)
+	byLane := make(map[string]*calibrationCounter)
+	for _, outcome := range outcomes {
+		addCalibration(byLane, string(outcome.Lane), outcome)
+		for _, riskType := range outcome.RiskTypes {
+			addCalibration(byRisk, string(riskType), outcome)
+		}
+	}
+	return domain.RiskCalibrationReport{GeneratedAt: time.Now().UTC(), ByRiskType: calibrationMetrics("risk_type", byRisk), ByLane: calibrationMetrics("lane", byLane)}, nil
+}
+
+type calibrationCounter struct{ samples, adverse int }
+
+func addCalibration(counters map[string]*calibrationCounter, key string, outcome domain.DeploymentOutcome) {
+	if key == "" {
+		return
+	}
+	counter := counters[key]
+	if counter == nil {
+		counter = &calibrationCounter{}
+		counters[key] = counter
+	}
+	counter.samples++
+	if outcome.Outcome == domain.DeploymentOutcomeRollback || outcome.Outcome == domain.DeploymentOutcomeIncident {
+		counter.adverse++
+	}
+}
+func calibrationMetrics(dimension string, counters map[string]*calibrationCounter) []domain.RiskCalibrationMetric {
+	metrics := make([]domain.RiskCalibrationMetric, 0, len(counters))
+	for value, counter := range counters {
+		rate := float64(counter.adverse) / float64(counter.samples)
+		recommendation := "collect more outcomes before adjusting policy"
+		if counter.samples >= 5 && rate >= 0.20 {
+			recommendation = "review risk weight or require stronger evidence"
+		} else if counter.samples >= 5 && rate < 0.05 {
+			recommendation = "monitor; no calibration change recommended"
+		}
+		metrics = append(metrics, domain.RiskCalibrationMetric{Dimension: dimension, Value: value, Samples: counter.samples, Adverse: counter.adverse, AdverseRate: rate, Recommendation: recommendation})
+	}
+	sort.Slice(metrics, func(i, j int) bool { return metrics[i].Value < metrics[j].Value })
+	return metrics
+}
+func validDeploymentOutcome(outcome domain.DeploymentOutcomeKind) bool {
+	return outcome == domain.DeploymentOutcomeSuccess || outcome == domain.DeploymentOutcomeRollback || outcome == domain.DeploymentOutcomeIncident
+}
+func validOutcomeSource(source string) bool {
+	if len(source) > 64 {
+		return false
+	}
+	for _, character := range source {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) UpdateEvidenceExecution(ctx context.Context, execution domain.EvidenceExecution) (domain.EvidenceExecution, error) {
@@ -116,7 +220,19 @@ func (s *Service) UpdateEvidenceExecution(ctx context.Context, execution domain.
 	execution.Type = requirement.Type
 	execution.Required = requirement.Required
 	execution.UpdatedAt = time.Now().UTC()
-	if err := s.repository.UpsertEvidenceExecution(ctx, execution); err != nil {
+	audit := domain.EvidenceAuditEntry{
+		ID:             identity.New("evidence_audit"),
+		ChangePacketID: execution.ChangePacketID,
+		EvidenceName:   execution.Name,
+		FromStatus:     currentStatus,
+		ToStatus:       execution.Status,
+		Actor:          execution.UpdatedBy,
+		Summary:        execution.Summary,
+		DetailsURL:     execution.DetailsURL,
+		Metadata:       execution.Metadata,
+		OccurredAt:     execution.UpdatedAt,
+	}
+	if err := s.repository.RecordEvidenceUpdate(ctx, execution, audit); err != nil {
 		return domain.EvidenceExecution{}, err
 	}
 	if err := s.reconcileDecision(ctx, &packet); err != nil {

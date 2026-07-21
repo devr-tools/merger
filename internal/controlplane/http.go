@@ -30,6 +30,7 @@ func NewHTTPHandler(service *Service) *HTTPHandler {
 func (h *HTTPHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/change-packets", h.handleChangePackets)
 	mux.HandleFunc("/api/v1/change-packets/", h.handleChangePacketByID)
+	mux.HandleFunc("/api/v1/risk-calibration", h.handleRiskCalibration)
 }
 
 func (h *HTTPHandler) handleChangePackets(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +61,14 @@ func (h *HTTPHandler) handleChangePacketByID(w http.ResponseWriter, r *http.Requ
 	}
 
 	if len(parts) == 3 && parts[1] == "evidence" {
+		if parts[2] == "audit" {
+			if r.Method != http.MethodGet {
+				methodNotAllowed(w, http.MethodGet)
+				return
+			}
+			h.listEvidenceAudit(w, r, changePacketID)
+			return
+		}
 		if r.Method != http.MethodPut {
 			methodNotAllowed(w, http.MethodPut)
 			return
@@ -67,8 +76,61 @@ func (h *HTTPHandler) handleChangePacketByID(w http.ResponseWriter, r *http.Requ
 		h.updateEvidenceExecution(w, r, changePacketID, parts[2])
 		return
 	}
+	if len(parts) == 2 && parts[1] == "outcomes" {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		h.recordDeploymentOutcome(w, r, changePacketID)
+		return
+	}
 
 	http.NotFound(w, r)
+}
+
+func (h *HTTPHandler) handleRiskCalibration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	report, err := h.service.RiskCalibrationReport(r.Context())
+	if err != nil {
+		writeLoggedHTTPError(w, r, http.StatusInternalServerError, "internal server error", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *HTTPHandler) recordDeploymentOutcome(w http.ResponseWriter, r *http.Request, changePacketID string) {
+	var request struct {
+		Outcome domain.DeploymentOutcomeKind `json:"outcome"`
+		Source  string                       `json:"source"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxEvidenceRequestBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeLoggedHTTPError(w, r, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	outcome, err := h.service.RecordDeploymentOutcome(r.Context(), domain.DeploymentOutcome{ChangePacketID: changePacketID, Outcome: request.Outcome, Source: request.Source})
+	if err != nil {
+		writeLoggedHTTPError(w, r, statusForError(err), publicErrorMessage(err), err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, outcome)
+}
+
+func (h *HTTPHandler) listEvidenceAudit(w http.ResponseWriter, r *http.Request, changePacketID string) {
+	limit, err := parseListLimit(r)
+	if err != nil {
+		writeLoggedHTTPError(w, r, http.StatusBadRequest, "invalid limit parameter", err)
+		return
+	}
+	entries, err := h.service.ListEvidenceAuditEntries(r.Context(), changePacketID, limit)
+	if err != nil {
+		writeLoggedHTTPError(w, r, statusForError(err), publicErrorMessage(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": entries})
 }
 
 func (h *HTTPHandler) listChangePackets(w http.ResponseWriter, r *http.Request) {

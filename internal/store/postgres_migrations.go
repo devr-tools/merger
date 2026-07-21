@@ -14,7 +14,9 @@ func postgresMigrations() []string {
 			created_at timestamptz not null,
 			updated_at timestamptz not null
 		)`,
+		`alter table merger_change_packets add column if not exists head_sha text`,
 		`create index if not exists idx_merger_change_packets_repo_pr on merger_change_packets (repo_full_name, pr_number)`,
+		`create index if not exists idx_merger_change_packets_exact_head on merger_change_packets (repo_full_name, pr_number, head_sha, updated_at desc)`,
 		`create table if not exists merger_event_log (
 			id text primary key,
 			event_type text not null,
@@ -41,5 +43,28 @@ func postgresMigrations() []string {
 			primary key (change_packet_id, evidence_name)
 		)`,
 		`create index if not exists idx_merger_evidence_executions_change_packet_id on merger_evidence_executions (change_packet_id)`,
+		`create table if not exists merger_evidence_audit_entries (
+			id text primary key,
+			change_packet_id text not null,
+			evidence_name text not null,
+			from_status text not null,
+			to_status text not null,
+			actor text,
+			summary text,
+			details_url text,
+			metadata jsonb,
+			occurred_at timestamptz not null
+		)`,
+		`create index if not exists idx_merger_evidence_audit_entries_packet_time on merger_evidence_audit_entries (change_packet_id, occurred_at desc)`,
+		`create table if not exists merger_deployment_outcomes (
+			id text primary key,
+			change_packet_id text not null,
+			outcome text not null,
+			source text,
+			lane text not null,
+			risk_types jsonb,
+			observed_at timestamptz not null
+		)`,
+		`create index if not exists idx_merger_deployment_outcomes_observed_at on merger_deployment_outcomes (observed_at desc)`,
 	}
 }

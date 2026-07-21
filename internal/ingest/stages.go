@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/devr-tools/merger/internal/conflictrisk"
 	"github.com/devr-tools/merger/internal/domain"
 	"github.com/devr-tools/merger/internal/github"
 	"github.com/devr-tools/merger/internal/mutations"
@@ -45,6 +46,7 @@ func (p *Processor) enrichRuntimeImpact(ctx context.Context, packet *domain.Chan
 }
 
 func (p *Processor) enrichRisk(ctx context.Context, packet *domain.ChangePacket) error {
+	packet.Conflict = conflictrisk.Analyze(*packet)
 	riskSummary, risks, err := p.risk.Evaluate(ctx, *packet)
 	if err != nil {
 		return err
@@ -90,13 +92,16 @@ func (p *Processor) finalize(ctx context.Context, packet *domain.ChangePacket) e
 		return err
 	}
 
-	if err := p.checks.Publish(ctx, *packet); err != nil {
-		return err
-	}
 	if p.store != nil {
 		if err := p.store.SaveChangePacket(ctx, *packet); err != nil {
 			return err
 		}
+	}
+	// Persist before creating the GitHub check run. GitHub can deliver a
+	// check_run webhook immediately after creation; storing first guarantees
+	// reconciliation can bind that webhook to this exact packet.
+	if err := p.checks.Publish(ctx, *packet); err != nil {
+		return err
 	}
 
 	p.logger.Info("processed pull request",

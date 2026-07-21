@@ -121,7 +121,7 @@ Load a policy rule set with `merger.LoadPolicy(path)` and pass it as
 
 ## Merge lane model
 
-- `GREEN` — isolated, low-risk mutation with automated evidence and no mandatory human escalation.
+- `GREEN` — isolated, low-risk mutation with required automated evidence satisfied and no mandatory human escalation.
 - `YELLOW` — standard review path.
 - `RED` — high-risk or owner/security-gated change.
 - `BLACK` — blocked; decomposition, rework, or policy exception required.
@@ -139,6 +139,12 @@ policies:
         - security
       evidence:
         - auth_integration_tests
+      # Only this exact check from this GitHub App may automatically satisfy
+      # the declared evidence. Legacy scalar evidence is never auto-satisfied.
+      github_checks:
+        - evidence: auth_integration_tests
+          name: CI / auth integration
+          app_id: 12345
       deployment:
         strategy: canary
         requires_canary: true

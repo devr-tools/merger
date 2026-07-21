@@ -116,7 +116,7 @@ func (s *Server) handleInitialize(req requestEnvelope) *responseEnvelope {
 			"title":   "merger MCP Server",
 			"version": version.Number,
 		},
-		"instructions": "Use merger_scan to analyze a unified diff and get its Change Packet and merge lane, and merger_validate to check a repository's merger config and policy.",
+		"instructions": "Use merger_scan to analyze a unified diff and get its Change Packet and merge lane. Pass that packet to merger_explain, merger_plan_evidence, or merger_check_readiness to plan and verify an agent's next actions. Use merger_validate to check a repository's merger config and policy.",
 	})
 }
 

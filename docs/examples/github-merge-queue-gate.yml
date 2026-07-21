@@ -1,0 +1,29 @@
+name: Merger change control
+
+# Keep the same workflow and job name enabled for both events. GitHub Merge
+# Queue evaluates required checks against its generated merge_group commit.
+on:
+  pull_request:
+  merge_group:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  merger-change-control:
+    name: Merger change control
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # head_sha is the queue's generated merge commit on merge_group.
+          ref: ${{ github.event.merge_group.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: devr-tools/merger@v1
+        with:
+          # Diff the generated merge commit against its exact queue base.
+          # On pull requests, use the PR base commit instead.
+          base-ref: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          fail-on-lane: RED

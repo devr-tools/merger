@@ -173,6 +173,9 @@ func writeTextReport(w io.Writer, packet *domain.ChangePacket, explain bool) {
 	}
 
 	fmt.Fprintf(w, "risk:       score %d (%s)\n", packet.RiskSummary.Score, packet.RiskSummary.Severity)
+	if packet.Conflict.Route != "" && packet.Conflict.Route != domain.ConflictRouteNone {
+		fmt.Fprintf(w, "conflict:   route %s (score %d)\n", packet.Conflict.Route, packet.Conflict.Score)
+	}
 	fmt.Fprintf(w, "runtime:    blast radius %s, criticality %s\n", packet.Runtime.BlastRadius, packet.Runtime.Criticality)
 	fmt.Fprintf(w, "decision:   %s\n", packet.Decision.Status)
 
@@ -194,6 +197,9 @@ func writeTextReport(w io.Writer, packet *domain.ChangePacket, explain bool) {
 			label := string(evidence.Type)
 			if evidence.Required {
 				label += " (required)"
+			}
+			if evidence.GitHubCheck != nil {
+				label += fmt.Sprintf(" [GitHub check: %s / app %d]", evidence.GitHubCheck.Name, evidence.GitHubCheck.AppID)
 			}
 			labels = append(labels, label)
 		}
@@ -247,5 +253,14 @@ func writeExplanation(w io.Writer, packet *domain.ChangePacket) {
 	}
 	for _, note := range packet.Runtime.Notes {
 		fmt.Fprintf(w, "  - runtime note: %s\n", note)
+	}
+	if packet.Conflict.Route != "" && packet.Conflict.Route != domain.ConflictRouteNone {
+		fmt.Fprintf(w, "  conflict route: %s\n", packet.Conflict.Route)
+		for _, finding := range packet.Conflict.Findings {
+			fmt.Fprintf(w, "  - conflict [%s] %s: %s\n", finding.Severity, finding.Kind, finding.Summary)
+		}
+		for _, mitigation := range packet.Conflict.Mitigations {
+			fmt.Fprintf(w, "      mitigate: %s\n", mitigation)
+		}
 	}
 }

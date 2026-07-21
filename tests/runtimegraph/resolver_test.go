@@ -79,3 +79,41 @@ func TestResolverMapsCodeOwnersWhenEnabled(t *testing.T) {
 		t.Fatalf("expected topology and codeowners boundaries, got %#v", owners)
 	}
 }
+
+func TestResolverTraversesConfiguredGraphManifestWithinBound(t *testing.T) {
+	resolver := runtimegraph.NewResolver(runtimegraph.Options{GraphManifestPath: ".merger/runtime-graph.yaml", MaxTraversalDepth: 1})
+	loader := stubLoader{files: map[string][]byte{
+		".merger/runtime-graph.yaml": []byte(`nodes:
+  - id: api
+    name: payments-api
+    kind: service
+    criticality: high
+    paths: ["services/api/**"]
+  - id: worker
+    name: payments-worker
+    kind: service
+  - id: ledger
+    name: ledger
+    kind: service
+edges:
+  - from: api
+    to: worker
+    type: calls
+  - from: worker
+    to: ledger
+    type: calls
+`),
+	}}
+	impact, _, err := resolver.ResolveImpact(context.Background(), runtimegraph.ResolutionInput{Packet: domain.ChangePacket{Files: []domain.ChangedFile{{Path: "services/api/handler.go"}}}, Loader: loader, Options: runtimegraph.Options{GraphManifestPath: ".merger/runtime-graph.yaml", MaxTraversalDepth: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(impact.Services) != 3 || impact.Criticality != domain.CriticalityHigh {
+		t.Fatalf("expected bounded api/worker impact, got %#v", impact)
+	}
+	for _, service := range impact.Services {
+		if service.Name == "ledger" {
+			t.Fatalf("depth-limited traversal must not include ledger: %#v", impact.Services)
+		}
+	}
+}

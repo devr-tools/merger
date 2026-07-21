@@ -12,16 +12,17 @@ import (
 )
 
 type Config struct {
-	Service      ServiceConfig      `yaml:"service"`
-	Access       AccessConfig       `yaml:"access"`
-	Logging      LoggingConfig      `yaml:"logging"`
-	GitHub       GitHubConfig       `yaml:"github"`
-	Events       EventsConfig       `yaml:"events"`
-	Persistence  PersistenceConfig  `yaml:"persistence"`
-	Policy       PolicyConfig       `yaml:"policy"`
-	Lanes        LanesConfig        `yaml:"lanes"`
-	Telemetry    TelemetryConfig    `yaml:"telemetry"`
-	RuntimeGraph RuntimeGraphConfig `yaml:"runtime_graph"`
+	Service           ServiceConfig            `yaml:"service"`
+	Access            AccessConfig             `yaml:"access"`
+	Logging           LoggingConfig            `yaml:"logging"`
+	GitHub            GitHubConfig             `yaml:"github"`
+	Events            EventsConfig             `yaml:"events"`
+	Persistence       PersistenceConfig        `yaml:"persistence"`
+	Policy            PolicyConfig             `yaml:"policy"`
+	Lanes             LanesConfig              `yaml:"lanes"`
+	Telemetry         TelemetryConfig          `yaml:"telemetry"`
+	RuntimeGraph      RuntimeGraphConfig       `yaml:"runtime_graph"`
+	MutationAnalyzers []ExternalAnalyzerConfig `yaml:"mutation_analyzers"`
 }
 
 type AccessMode string
@@ -110,7 +111,16 @@ type TelemetryConfig struct {
 }
 
 type RuntimeGraphConfig struct {
-	EnableCodeOwners bool `yaml:"enable_codeowners"`
+	EnableCodeOwners  bool   `yaml:"enable_codeowners"`
+	GraphManifestPath string `yaml:"graph_manifest_path"`
+	MaxTraversalDepth int    `yaml:"max_traversal_depth"`
+}
+type ExternalAnalyzerConfig struct {
+	Name       string   `yaml:"name"`
+	Executable string   `yaml:"executable"`
+	Allowlist  []string `yaml:"allowlist"`
+	Timeout    string   `yaml:"timeout"`
+	Paths      []string `yaml:"paths"`
 }
 
 func Defaults() Config {

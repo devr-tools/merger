@@ -40,7 +40,8 @@ func AccessUnaryServerInterceptor(authenticator access.Authenticator) grpc.Unary
 func roleForMethod(fullMethod string) (access.Role, bool) {
 	switch fullMethod {
 	case mergerv1.ChangeControlService_GetChangePacket_FullMethodName,
-		mergerv1.ChangeControlService_ListChangePackets_FullMethodName:
+		mergerv1.ChangeControlService_ListChangePackets_FullMethodName,
+		mergerv1.ChangeControlService_ListEvidenceAuditEntries_FullMethodName:
 		return access.RoleReader, true
 	case mergerv1.ChangeControlService_UpdateEvidenceExecution_FullMethodName:
 		return access.RoleEvidenceWriter, true

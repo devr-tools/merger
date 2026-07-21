@@ -121,6 +121,51 @@ func TestValidateAllowsExtensibleEvidenceNames(t *testing.T) {
 	}
 }
 
+func TestValidateGitHubCheckBindings(t *testing.T) {
+	rule := validRule("bound_evidence")
+	rule.Require = policy.RequirementClause{
+		Evidence:     []string{"integration_tests"},
+		GitHubChecks: []policy.GitHubCheckBinding{{Evidence: "integration_tests", Name: "CI / integration", AppID: 123}},
+	}
+	if err := policy.Validate(policy.Config{Policies: []policy.RuleConfig{rule}}); err != nil {
+		t.Fatalf("expected valid explicit GitHub binding, got %v", err)
+	}
+
+	for _, binding := range []policy.GitHubCheckBinding{
+		{Evidence: "integration_tests", Name: "CI", AppID: 0},
+		{Evidence: "not_declared", Name: "CI", AppID: 123},
+	} {
+		rule.Require.GitHubChecks = []policy.GitHubCheckBinding{binding}
+		if err := policy.Validate(policy.Config{Policies: []policy.RuleConfig{rule}}); err == nil {
+			t.Fatalf("expected binding %#v to be rejected", binding)
+		}
+	}
+}
+
+func TestValidateRejectsAmbiguousGitHubCheckBindingsAcrossPolicies(t *testing.T) {
+	first := validRule("first")
+	first.Require = policy.RequirementClause{
+		Evidence:     []string{"integration_tests"},
+		GitHubChecks: []policy.GitHubCheckBinding{{Evidence: "integration_tests", Name: "CI / integration", AppID: 123}},
+	}
+	second := validRule("second")
+	second.Require = policy.RequirementClause{
+		Evidence:     []string{"contract_tests"},
+		GitHubChecks: []policy.GitHubCheckBinding{{Evidence: "contract_tests", Name: "CI / integration", AppID: 123}},
+	}
+	if err := policy.Validate(policy.Config{Policies: []policy.RuleConfig{first, second}}); err == nil || !strings.Contains(err.Error(), "bound to both evidence") {
+		t.Fatalf("expected duplicate check/App binding rejection, got %v", err)
+	}
+
+	second.Require = policy.RequirementClause{
+		Evidence:     []string{"integration_tests"},
+		GitHubChecks: []policy.GitHubCheckBinding{{Evidence: "integration_tests", Name: "CI / other", AppID: 123}},
+	}
+	if err := policy.Validate(policy.Config{Policies: []policy.RuleConfig{first, second}}); err == nil || !strings.Contains(err.Error(), "conflicting GitHub check bindings") {
+		t.Fatalf("expected conflicting evidence binding rejection, got %v", err)
+	}
+}
+
 func validRule(name string) policy.RuleConfig {
 	return policy.RuleConfig{
 		Name:   name,

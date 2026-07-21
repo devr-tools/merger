@@ -55,6 +55,11 @@ func DefaultEngine() *RuleBasedEngine {
 	return NewRuleBasedEngine(DefaultRules(), DefaultExtractors(), DefaultAnalyzers())
 }
 
+func DefaultEngineWithExternal(analyzers []Analyzer) *RuleBasedEngine {
+	all := append(DefaultAnalyzers(), analyzers...)
+	return NewRuleBasedEngine(DefaultRules(), DefaultExtractors(), all)
+}
+
 func (e *RuleBasedEngine) Classify(ctx context.Context, request AnalysisRequest) ([]domain.Mutation, error) {
 	index := make(map[domain.MutationKind]*domain.Mutation)
 

@@ -45,6 +45,8 @@ var supportedDeploymentStrategies = map[string]struct{}{
 // produce a meaningful requirement or decision.
 func Validate(config Config) error {
 	names := make(map[string]struct{}, len(config.Policies))
+	evidenceBindings := make(map[string]GitHubCheckBinding)
+	checkBindings := make(map[githubCheckIdentity]string)
 	for index, rule := range config.Policies {
 		label := fmt.Sprintf("policy[%d]", index)
 		name := strings.TrimSpace(rule.Name)
@@ -60,8 +62,24 @@ func Validate(config Config) error {
 		if err := validateRule(label+" ("+name+")", rule); err != nil {
 			return err
 		}
+		for _, binding := range rule.Require.GitHubChecks {
+			if existing, ok := evidenceBindings[binding.Evidence]; ok && existing != binding {
+				return fmt.Errorf("evidence %q has conflicting GitHub check bindings", binding.Evidence)
+			}
+			evidenceBindings[binding.Evidence] = binding
+			identity := githubCheckIdentity{Name: binding.Name, AppID: binding.AppID}
+			if evidence, ok := checkBindings[identity]; ok && evidence != binding.Evidence {
+				return fmt.Errorf("GitHub check %q from app %d is bound to both evidence %q and %q", binding.Name, binding.AppID, evidence, binding.Evidence)
+			}
+			checkBindings[identity] = binding.Evidence
+		}
 	}
 	return nil
+}
+
+type githubCheckIdentity struct {
+	Name  string
+	AppID int64
 }
 
 func validateRule(label string, rule RuleConfig) error {
@@ -111,6 +129,27 @@ func validateRequirements(label string, require RequirementClause) error {
 	if err := requireNonEmpty(label, "evidence name", require.Evidence); err != nil {
 		return err
 	}
+	declaredEvidence := make(map[string]struct{}, len(require.Evidence))
+	for _, evidence := range require.Evidence {
+		declaredEvidence[evidence] = struct{}{}
+	}
+	boundEvidence := make(map[string]struct{}, len(require.GitHubChecks))
+	for index, binding := range require.GitHubChecks {
+		bindingLabel := fmt.Sprintf("%s GitHub check binding at index %d", label, index)
+		if strings.TrimSpace(binding.Evidence) == "" || strings.TrimSpace(binding.Name) == "" {
+			return fmt.Errorf("%s must define evidence and name", bindingLabel)
+		}
+		if binding.AppID <= 0 {
+			return fmt.Errorf("%s app_id must be a positive integer", bindingLabel)
+		}
+		if _, declared := declaredEvidence[binding.Evidence]; !declared {
+			return fmt.Errorf("%s references undeclared evidence %q", bindingLabel, binding.Evidence)
+		}
+		if _, duplicate := boundEvidence[binding.Evidence]; duplicate {
+			return fmt.Errorf("%s duplicates binding for evidence %q", label, binding.Evidence)
+		}
+		boundEvidence[binding.Evidence] = struct{}{}
+	}
 	if err := requireNonEmpty(label, "deployment environment", require.Deployment.Environments); err != nil {
 		return err
 	}
@@ -142,7 +181,7 @@ func hasCondition(when WhenClause) bool {
 
 func hasEffect(rule RuleConfig) bool {
 	deployment := rule.Require.Deployment
-	return len(rule.Require.Reviewers) > 0 || len(rule.Require.Evidence) > 0 ||
+	return len(rule.Require.Reviewers) > 0 || len(rule.Require.Evidence) > 0 || len(rule.Require.GitHubChecks) > 0 ||
 		deployment.Strategy != "" || deployment.RequiresCanary || deployment.RequiresRollbackPlan ||
 		len(deployment.Environments) > 0 || rule.Action.Block || rule.Action.MinimumLane != ""
 }

@@ -31,12 +31,20 @@ func applyReviewerRequirements(evaluation *Evaluation, rule RuleConfig) {
 
 func applyEvidenceRequirements(evaluation *Evaluation, rule RuleConfig) {
 	for _, evidence := range rule.Require.Evidence {
+		var githubCheck *domain.GitHubCheckBinding
+		for _, binding := range rule.Require.GitHubChecks {
+			if binding.Evidence == evidence {
+				githubCheck = &domain.GitHubCheckBinding{Name: binding.Name, AppID: binding.AppID}
+				break
+			}
+		}
 		evaluation.Evidence = appendUniqueEvidence(evaluation.Evidence, domain.EvidenceRequirement{
-			Type:     domain.EvidenceType(evidence),
-			Name:     evidence,
-			Required: true,
-			Reason:   fmt.Sprintf("required by policy %s", rule.Name),
-			Producer: "policy-engine",
+			Type:        domain.EvidenceType(evidence),
+			Name:        evidence,
+			Required:    true,
+			Reason:      fmt.Sprintf("required by policy %s", rule.Name),
+			Producer:    "policy-engine",
+			GitHubCheck: githubCheck,
 		})
 	}
 }

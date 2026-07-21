@@ -16,7 +16,10 @@ type Webhook struct {
 	Event        string
 	DeliveryID   string
 	Signature256 string
-	Payload      PullRequestWebhookPayload
+	// Payload remains the pull_request payload for backwards compatibility with
+	// existing webhook consumers. CheckRun is populated for check_run events.
+	Payload  PullRequestWebhookPayload
+	CheckRun *CheckRunWebhookPayload
 }
 
 type PullRequestWebhookPayload struct {
@@ -49,6 +52,41 @@ type PullRequestWebhookPayload struct {
 	} `json:"pull_request"`
 }
 
+// CheckRunWebhookPayload is the subset of a GitHub check_run webhook needed to
+// associate a completed check with a pull request and its head commit.
+type CheckRunWebhookPayload struct {
+	Action       string `json:"action"`
+	Installation struct {
+		ID int64 `json:"id"`
+	} `json:"installation"`
+	Repository struct {
+		Name     string `json:"name"`
+		FullName string `json:"full_name"`
+		Owner    struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+	} `json:"repository"`
+	CheckRun struct {
+		ID         int64  `json:"id"`
+		Name       string `json:"name"`
+		HeadSHA    string `json:"head_sha"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		DetailsURL string `json:"details_url"`
+		Output     struct {
+			Title   string `json:"title"`
+			Summary string `json:"summary"`
+		} `json:"output"`
+		App struct {
+			ID   int64  `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"app"`
+		PullRequests []struct {
+			Number int `json:"number"`
+		} `json:"pull_requests"`
+	} `json:"check_run"`
+}
+
 type WebhookDecoder struct {
 	secret string
 }
@@ -73,17 +111,28 @@ func (d WebhookDecoder) Decode(r *http.Request) (Webhook, error) {
 		return Webhook{}, err
 	}
 
-	var payload PullRequestWebhookPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return Webhook{}, err
-	}
-
-	return Webhook{
+	webhook := Webhook{
 		Event:        event,
 		DeliveryID:   r.Header.Get("X-GitHub-Delivery"),
 		Signature256: signature,
-		Payload:      payload,
-	}, nil
+	}
+
+	switch event {
+	case "check_run":
+		var payload CheckRunWebhookPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return Webhook{}, err
+		}
+		webhook.CheckRun = &payload
+	default:
+		var payload PullRequestWebhookPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return Webhook{}, err
+		}
+		webhook.Payload = payload
+	}
+
+	return webhook, nil
 }
 
 func (d WebhookDecoder) verify(payload []byte, signature string) error {

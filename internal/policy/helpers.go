@@ -16,8 +16,14 @@ func appendUniqueReviewer(values []domain.ReviewerRequirement, candidate domain.
 }
 
 func appendUniqueEvidence(values []domain.EvidenceRequirement, candidate domain.EvidenceRequirement) []domain.EvidenceRequirement {
-	for _, value := range values {
+	for index, value := range values {
 		if value.Name == candidate.Name {
+			// A binding is more specific than legacy scalar evidence. Retain it
+			// independently of matched-policy order, while validation rejects two
+			// conflicting bindings for the same evidence name.
+			if value.GitHubCheck == nil && candidate.GitHubCheck != nil {
+				values[index].GitHubCheck = candidate.GitHubCheck
+			}
 			return values
 		}
 	}

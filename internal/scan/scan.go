@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devr-tools/merger/internal/conflictrisk"
 	"github.com/devr-tools/merger/internal/domain"
 	"github.com/devr-tools/merger/internal/lanes"
 	"github.com/devr-tools/merger/internal/mutations"
@@ -35,6 +36,10 @@ type Options struct {
 	Repo domain.RepoRef
 	// Ref is the revision the diff targets (used as the content-loader ref).
 	Ref string
+	// BaseSHA and CurrentBaseSHA must be supplied together to avoid inferring
+	// target-branch drift from an ambiguous ref.
+	BaseSHA        string
+	CurrentBaseSHA string
 	// Title optionally labels the Change Packet.
 	Title string
 	// Author optionally attributes the Change Packet.
@@ -80,7 +85,7 @@ func Run(ctx context.Context, opts Options) (*domain.ChangePacket, error) {
 	packet := &domain.ChangePacket{
 		ID:        identity.New("cp"),
 		Repo:      opts.Repo,
-		PR:        domain.PullRequestRef{HeadSHA: opts.Ref},
+		PR:        domain.PullRequestRef{HeadSHA: opts.Ref, BaseSHA: opts.BaseSHA},
 		Author:    opts.Author,
 		Title:     opts.Title,
 		Source:    "cli.scan",
@@ -92,6 +97,9 @@ func Run(ctx context.Context, opts Options) (*domain.ChangePacket, error) {
 		},
 		CreatedAt: now,
 		UpdatedAt: now,
+	}
+	if opts.CurrentBaseSHA != "" {
+		packet.Metadata = map[string]string{"current_base_sha": opts.CurrentBaseSHA}
 	}
 
 	loader := fsContentLoader{root: opts.RepoRoot}
@@ -106,6 +114,7 @@ func Run(ctx context.Context, opts Options) (*domain.ChangePacket, error) {
 		return nil, fmt.Errorf("classify mutations: %w", err)
 	}
 	packet.Mutations = mutationList
+	packet.Conflict = conflictrisk.Analyze(*packet)
 
 	runtimeImpact, ownership, err := runtimegraph.NewResolver(runtimegraph.Options{
 		EnableCodeOwners: opts.EnableCodeOwners,

@@ -15,6 +15,26 @@ type MemoryRepository struct {
 	changePackets  map[string]domain.ChangePacket
 	events         map[string]events.Envelope
 	evidenceByCPID map[string]map[string]domain.EvidenceExecution
+	auditByCPID    map[string][]domain.EvidenceAuditEntry
+	outcomes       []domain.DeploymentOutcome
+}
+
+func (r *MemoryRepository) SaveDeploymentOutcome(_ context.Context, outcome domain.DeploymentOutcome) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outcomes = append(r.outcomes, outcome)
+	return nil
+}
+
+func (r *MemoryRepository) ListDeploymentOutcomes(_ context.Context, limit int) ([]domain.DeploymentOutcome, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	items := append([]domain.DeploymentOutcome(nil), r.outcomes...)
+	sort.SliceStable(items, func(i, j int) bool { return items[i].ObservedAt.After(items[j].ObservedAt) })
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 func NewMemoryRepository() *MemoryRepository {
@@ -22,7 +42,47 @@ func NewMemoryRepository() *MemoryRepository {
 		changePackets:  make(map[string]domain.ChangePacket),
 		events:         make(map[string]events.Envelope),
 		evidenceByCPID: make(map[string]map[string]domain.EvidenceExecution),
+		auditByCPID:    make(map[string][]domain.EvidenceAuditEntry),
 	}
+}
+
+func (r *MemoryRepository) RecordEvidenceUpdate(_ context.Context, execution domain.EvidenceExecution, audit domain.EvidenceAuditEntry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.evidenceByCPID[execution.ChangePacketID] == nil {
+		r.evidenceByCPID[execution.ChangePacketID] = make(map[string]domain.EvidenceExecution)
+	}
+	if execution.UpdatedAt.IsZero() {
+		execution.UpdatedAt = time.Now().UTC()
+	}
+	r.evidenceByCPID[execution.ChangePacketID][execution.Name] = execution
+	r.auditByCPID[audit.ChangePacketID] = append(r.auditByCPID[audit.ChangePacketID], cloneAuditEntry(audit))
+	return nil
+}
+
+func (r *MemoryRepository) ListEvidenceAuditEntries(_ context.Context, changePacketID string, limit int) ([]domain.EvidenceAuditEntry, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	stored := r.auditByCPID[changePacketID]
+	entries := make([]domain.EvidenceAuditEntry, 0, len(stored))
+	for index := len(stored) - 1; index >= 0; index-- {
+		entries = append(entries, cloneAuditEntry(stored[index]))
+	}
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+	return entries, nil
+}
+
+func cloneAuditEntry(entry domain.EvidenceAuditEntry) domain.EvidenceAuditEntry {
+	if len(entry.Metadata) == 0 {
+		return entry
+	}
+	entry.Metadata = make(map[string]string, len(entry.Metadata))
+	for key, value := range entry.Metadata {
+		entry.Metadata[key] = value
+	}
+	return entry
 }
 
 func (r *MemoryRepository) SaveChangePacket(_ context.Context, packet domain.ChangePacket) error {
@@ -43,6 +103,26 @@ func (r *MemoryRepository) GetChangePacket(_ context.Context, id string) (domain
 		return domain.ChangePacket{}, ErrChangePacketNotFound
 	}
 	return packet, nil
+}
+
+func (r *MemoryRepository) FindLatestChangePacket(_ context.Context, repoFullName string, prNumber int, headSHA string) (domain.ChangePacket, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var latest domain.ChangePacket
+	found := false
+	for _, packet := range r.changePackets {
+		if packet.Repo.FullName != repoFullName || packet.PR.Number != prNumber || packet.PR.HeadSHA != headSHA {
+			continue
+		}
+		if !found || packet.UpdatedAt.After(latest.UpdatedAt) {
+			latest, found = packet, true
+		}
+	}
+	if !found {
+		return domain.ChangePacket{}, ErrChangePacketNotFound
+	}
+	return latest, nil
 }
 
 func (r *MemoryRepository) ListChangePackets(_ context.Context, limit int) ([]domain.ChangePacket, error) {

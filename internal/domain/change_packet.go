@@ -34,6 +34,7 @@ type ChangePacket struct {
 	Mutations   []Mutation            `json:"mutations,omitempty"`
 	Risks       []Risk                `json:"risks,omitempty"`
 	RiskSummary RiskSummary           `json:"riskSummary"`
+	Conflict    ConflictAssessment    `json:"conflict,omitempty"`
 	Evidence    []EvidenceRequirement `json:"evidence,omitempty"`
 	Runtime     RuntimeImpact         `json:"runtimeImpact"`
 	Ownership   []OwnershipBoundary   `json:"ownership,omitempty"`

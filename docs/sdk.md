@@ -56,3 +56,17 @@ A zero `Policy` evaluates no rules (every packet is approved by default). A zero
 `pkg/merger` re-exports the domain types (`ChangePacket`, `Mutation`,
 `MergeLane`, `RiskSummary`, …) so callers never import `internal/` packages
 directly.
+
+## SCM adapters
+
+`extensions.NewGitLabClient` and `extensions.NewBitbucketClient` are public
+`SCMProvider` implementations for GitLab and Bitbucket Cloud. They implement
+pull request retrieval, diff/content fetches, and provider-native commit status
+publication using a token supplied by the embedding application. Configure
+their API base URL, token (and Bitbucket username), then pass the adapter to
+your integration; current service bootstrap remains GitHub-specific.
+
+Policy construction is also supported through `merger.PolicyRule`,
+`merger.PolicyRequirements`, and `merger.GitHubCheckBinding`. A GitHub check
+binding pairs a declared evidence name with the exact check name and numeric
+GitHub App ID permitted to satisfy it automatically.

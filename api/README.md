@@ -21,7 +21,32 @@ transitions return a conflict response.
 After an update, the control plane reconciles outstanding required evidence and
 mandatory reviewers into the packet decision, recomputes its lane, persists the
 result, and refreshes the GitHub Check with current evidence statuses. Blocked
-policy decisions remain blocked.
+policy decisions remain blocked. A pending or escalated decision is assigned at
+least the `RED` lane, so required evidence cannot accidentally be reported as a
+`GREEN` change. Once the required evidence is satisfied or validly waived and
+the decision is approved, the normal risk and policy lane calculation applies
+again.
+
+## GitHub check reconciliation
+
+Merger can update an evidence requirement from a GitHub `check_run` webhook.
+This is opt-in: bind the evidence name to both the exact check name and the
+numeric GitHub App ID in its policy. Scalar `evidence` entries without a binding
+remain manual/API-managed.
+
+```yaml
+require:
+  evidence: [integration_tests]
+  github_checks:
+    - evidence: integration_tests
+      name: CI / integration
+      app_id: 123456
+```
+
+Only a completed check from that exact app, associated with the same repository,
+pull request, and head SHA as the latest Change Packet can update evidence.
+`success` satisfies it; every other terminal conclusion records a failure.
+Merger stores the check run, app, and commit identifiers as evidence metadata.
 
 ## gRPC
 

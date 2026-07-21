@@ -6,7 +6,7 @@ branding:
 
 inputs:
   base-ref:
-    description: Base ref to diff against (scans `git diff <base-ref>...HEAD`)
+    description: Base branch, ref, or immutable commit SHA to diff against (scans `git diff <base-ref>...HEAD`; use merge_group.base_sha for GitHub Merge Queue)
     required: false
     default: main
   config:

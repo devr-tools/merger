@@ -92,12 +92,23 @@ policies:
         - security
       evidence:
         - auth_integration_tests
+      github_checks:
+        - evidence: auth_integration_tests
+          name: CI / auth integration
+          app_id: 12345
       deployment:
         strategy: canary
         requires_canary: true
     action:
       minimum_lane: RED
 ```
+
+`github_checks` optionally authorizes automatic evidence reconciliation from
+GitHub `check_run` webhooks. A binding must reference an evidence item declared
+in the same rule and includes both the exact check name and the numeric GitHub
+App ID. Merger rejects a check/App pair bound to different evidence items and
+rejects conflicting bindings for the same evidence across policies. Scalar
+`evidence` entries remain manual unless explicitly bound.
 
 ## MCP server
 
@@ -133,6 +144,85 @@ Add the `Devr Merger` action to gate pull requests on their assigned lane:
 
 The Action exports `lane`, `risk-score`, and `change-packet-id` outputs for use
 by later workflow steps.
+
+### GitHub Merge Queue
+
+Merger does not execute a merge queue. It supplies a required gate that GitHub
+Merge Queue reruns against the queue-generated `merge_group` commit. Use one
+workflow and the same job name for both `pull_request` and `merge_group`, then
+select **Merger change control** as a required status check in branch
+protection/rulesets. The workflow must use the merge-group `head_sha` and
+`base_sha`, not a pull-request head or moving branch name.
+
+Copy [the merge-queue workflow example](examples/github-merge-queue-gate.yml)
+into `.github/workflows/merger-change-control.yml`, adjust the action version
+and lane threshold, and enable GitHub Merge Queue for the target branch.
+
+### Runtime dependency graph
+
+Optionally configure a repository-local graph manifest to resolve transitive
+impact beyond changed-file topology. Traversal is bounded (default depth `3`)
+and supplements, rather than replaces, CODEOWNERS and manifest discovery.
+
+```yaml
+runtime_graph:
+  enable_codeowners: true
+  graph_manifest_path: .merger/runtime-graph.yaml
+  max_traversal_depth: 3
+```
+
+The graph manifest maps changed paths to node IDs and declares dependencies:
+
+```yaml
+nodes:
+  - id: payments-api
+    name: payments-api
+    kind: service
+    criticality: high
+    paths: ["services/payments-api/**"]
+  - id: ledger
+    name: ledger
+    kind: service
+edges:
+  - from: payments-api
+    to: ledger
+    type: calls
+```
+
+### External mutation analyzers
+
+External analyzers are opt-in JSON-over-stdio subprocesses. Each executable
+must be an absolute path explicitly repeated in its allowlist; Merger never
+uses a shell or passes configuration arguments. The analyzer receives one
+analysis input JSON object on stdin and emits a JSON mutation array on stdout.
+
+```yaml
+mutation_analyzers:
+  - name: organization-rules
+    executable: /opt/merger/analyzers/org-rules
+    allowlist: [/opt/merger/analyzers/org-rules]
+    timeout: 5s
+    paths: ["services/**"]
+```
+
+### Conflict-risk routing
+
+Every scan also checks the proposed diff for unresolved conflict markers,
+duplicate normalized file entries, and policy-sensitive paths (such as
+CODEOWNERS, deployment workflows, and schema or migration files). When the
+caller supplies both the change's base SHA and the target branch's current SHA,
+Merger additionally detects base drift. Findings are recorded in the Change
+Packet's `conflict` field and reflected in the risk score.
+
+Merger never resolves a conflict or rewrites the change. It routes ordinary
+drift and policy-sensitive concurrent-edit risk to `refresh_and_verify` (RED),
+and unresolved conflict markers to `human_resolution` (BLACK). The JSON output
+includes the exact findings, affected paths, and mitigations so a merge queue
+or agent can take the prescribed next step.
+
+SDK callers can set `ScanOptions.BaseSHA` and `ScanOptions.CurrentBaseSHA` when
+they have freshly read the target branch; webhook integrations set
+`current_base_sha` packet metadata when that value is available.
 
 ## Run the control plane locally
 
@@ -220,6 +310,36 @@ For asymmetric signing, use `algorithm: RS256` and `public_key_path` instead of
 `secret_env`. Merger validates issuer, audience, expiry, and signature, then
 maps claim values to Merger roles. `subject_claim` defaults to `sub`, and
 `roles_claim` defaults to `roles` when omitted.
+
+### Evidence audit history
+
+Every accepted evidence update retains the current execution snapshot and
+appends an immutable audit record containing the previous and new status,
+actor, timestamp, summary, details URL, and provenance metadata. Read a
+packet's history with:
+
+```bash
+curl -H "Authorization: Bearer $MERGER_DASHBOARD_TOKEN" \
+  'http://localhost:8081/api/v1/change-packets/cp_example/evidence/audit?limit=50'
+```
+
+Audit records are append-only. GitHub check reconciliation records its trusted
+check-run, app, and commit provenance in the entry metadata.
+
+### Outcome-based calibration
+
+Record a bounded deployment outcome after delivery; Merger stores only the
+outcome kind (`success`, `rollback`, or `incident`), source, time, and the
+packet's lane/risk-type snapshot—never logs or incident narratives. The
+calibration report aggregates sample count and adverse rate by lane and risk
+type, and provides recommendations without changing policy thresholds.
+
+```bash
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"outcome":"success","source":"deploy-controller"}' \
+  http://localhost:8081/api/v1/change-packets/cp_example/outcomes
+curl http://localhost:8081/api/v1/risk-calibration
+```
 
 Tear the stack down with `make compose-down`.
 

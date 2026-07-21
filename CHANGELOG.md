@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.2.0](https://github.com/devr-tools/merger/compare/v1.1.0...v1.2.0) (2026-07-21)
+
+
+### Features
+
+* **action:** support GitHub Merge Queue gates ([8012830](https://github.com/devr-tools/merger/commit/80128307192c485e3201d7aa98cfea9077970bb1))
+* add conflict routing and agent readiness tools ([4cf8b52](https://github.com/devr-tools/merger/commit/4cf8b5203130690741dd7624c6dade814e72d39d))
+* **evidence:** retain immutable audit history ([ad664b2](https://github.com/devr-tools/merger/commit/ad664b2b2eb1edfd91ab0c9592f6f03a481eef30))
+* **extensions:** add GitLab and Bitbucket SCM clients ([ef91e69](https://github.com/devr-tools/merger/commit/ef91e697a3ce80e3052dc027d2687c96570b1638))
+* gate unresolved decisions from green lanes ([d11b461](https://github.com/devr-tools/merger/commit/d11b461028d876291631cc82bb4d4d337210be46))
+* **ingest:** reconcile trusted GitHub checks as evidence ([5e6d2d9](https://github.com/devr-tools/merger/commit/5e6d2d9d702ba7fd44e294be6d25a9b042a9f4a7))
+* **mutations:** support safe external analyzers ([712b598](https://github.com/devr-tools/merger/commit/712b59835083fec26bfd71d37a60ddb77931622a))
+* **policy:** harden GitHub check bindings ([57c1332](https://github.com/devr-tools/merger/commit/57c13320d2e2a76ba16a32456ee24170fa89cf2d))
+* **risk:** calibrate recommendations from deployment outcomes ([da13346](https://github.com/devr-tools/merger/commit/da13346fb2a981becb4a078e12638d9395268edd))
+* **runtime:** resolve bounded transitive graph impact ([6316335](https://github.com/devr-tools/merger/commit/6316335d0e8c15dd00d7af50b66f228ba6f34a99))
+
+
+### Bug Fixes
+
+* **lanes:** split conflict override routing from threshold assignment ([5d5f221](https://github.com/devr-tools/merger/commit/5d5f221cf975c3bfd5c8fbacfd6f0c8f657ea5c0))
+* **security:** document reviewed external analyzer execution ([52e1249](https://github.com/devr-tools/merger/commit/52e1249008b354865e85175061f6ac6e21198908))
+* **tests:** make audit ordering and analyzer fixtures portable ([c31e296](https://github.com/devr-tools/merger/commit/c31e2967564d997fee2b9b8d6c33052596d4ce71))
+
 ## [1.1.0](https://github.com/devr-tools/merger/compare/v1.0.0...v1.1.0) (2026-07-17)
 
 

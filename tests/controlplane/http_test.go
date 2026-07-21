@@ -66,6 +66,50 @@ func TestHTTPHandlerUpdatesEvidenceExecution(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerListsImmutableEvidenceAuditHistory(t *testing.T) {
+	repo := seedRepository(t)
+	handler := controlplane.NewHTTPHandler(controlplane.NewService(repo))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	for _, body := range []string{
+		`{"status":"running","summary":"started","updatedBy":"ci"}`,
+		`{"status":"satisfied","summary":"passed","updatedBy":"ci"}`,
+	} {
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/change-packets/cp_1/evidence/integration_tests", bytes.NewBufferString(body))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("update evidence: got %d", rec.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/change-packets/cp_1/evidence/audit", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Items []domain.EvidenceAuditEntry `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Items) != 2 {
+		t.Fatalf("expected two immutable audit entries, got %#v", response.Items)
+	}
+	if response.Items[0].FromStatus != domain.EvidenceRunning || response.Items[0].ToStatus != domain.EvidenceSatisfied || response.Items[0].Actor != "ci" {
+		t.Fatalf("unexpected latest audit entry: %#v", response.Items[0])
+	}
+	if response.Items[1].FromStatus != domain.EvidencePending || response.Items[1].ToStatus != domain.EvidenceRunning {
+		t.Fatalf("unexpected original audit entry: %#v", response.Items[1])
+	}
+	if response.Items[0].ID == "" || response.Items[0].OccurredAt.IsZero() {
+		t.Fatalf("expected immutable audit identity and time: %#v", response.Items[0])
+	}
+}
+
 func TestHTTPHandlerRejectsInvalidEvidenceUpdates(t *testing.T) {
 	tests := []struct {
 		name       string

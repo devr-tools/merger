@@ -221,6 +221,21 @@ For asymmetric signing, use `algorithm: RS256` and `public_key_path` instead of
 maps claim values to Merger roles. `subject_claim` defaults to `sub`, and
 `roles_claim` defaults to `roles` when omitted.
 
+### Evidence audit history
+
+Every accepted evidence update retains the current execution snapshot and
+appends an immutable audit record containing the previous and new status,
+actor, timestamp, summary, details URL, and provenance metadata. Read a
+packet's history with:
+
+```bash
+curl -H "Authorization: Bearer $MERGER_DASHBOARD_TOKEN" \
+  'http://localhost:8081/api/v1/change-packets/cp_example/evidence/audit?limit=50'
+```
+
+Audit records are append-only. GitHub check reconciliation records its trusted
+check-run, app, and commit provenance in the entry metadata.
+
 Tear the stack down with `make compose-down`.
 
 ### 3. Verify

@@ -33,9 +33,7 @@ func TestProcessCheckRunReconcilesOnlyExplicitBindingForLatestMatchingPacket(t *
 	updater := &recordingEvidenceUpdater{}
 	processor := newReconciliationProcessor(repository, updater)
 
-	if err := processor.ProcessCheckRun(context.Background(), checkRunPayload(t, "CI / integration", 123, "success", "head-sha")); err != nil {
-		t.Fatalf("process check run: %v", err)
-	}
+	requireNoError(t, processor.ProcessCheckRun(context.Background(), checkRunPayload(t, "CI / integration", 123, "success", "head-sha")))
 	if len(updater.executions) != 1 {
 		t.Fatalf("expected one evidence update, got %d", len(updater.executions))
 	}
@@ -79,9 +77,7 @@ func TestProcessCheckRunMarksNonSuccessfulCompletionFailed(t *testing.T) {
 	}
 	updater := &recordingEvidenceUpdater{}
 	processor := newReconciliationProcessor(repository, updater)
-	if err := processor.ProcessCheckRun(context.Background(), checkRunPayload(t, "CI / integration", 123, "neutral", "head-sha")); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, processor.ProcessCheckRun(context.Background(), checkRunPayload(t, "CI / integration", 123, "neutral", "head-sha")))
 	if len(updater.executions) != 1 || updater.executions[0].Status != domain.EvidenceFailed {
 		t.Fatalf("expected neutral check to fail evidence, got %#v", updater.executions)
 	}
@@ -94,9 +90,7 @@ func TestProcessCheckRunUsesControlPlaneToPersistEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	processor := newReconciliationProcessor(repository, controlplane.NewService(repository))
-	if err := processor.ProcessCheckRun(context.Background(), checkRunPayload(t, "CI / integration", 123, "success", "head-sha")); err != nil {
-		t.Fatal(err)
-	}
+	requireNoError(t, processor.ProcessCheckRun(context.Background(), checkRunPayload(t, "CI / integration", 123, "success", "head-sha")))
 	executions, err := repository.ListEvidenceExecutions(context.Background(), packet.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -139,6 +133,13 @@ func newReconciliationProcessor(repository *store.MemoryRepository, updater inge
 }
 
 type recordingEvidenceUpdater struct{ executions []domain.EvidenceExecution }
+
+func requireNoError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func (u *recordingEvidenceUpdater) UpdateEvidenceExecution(_ context.Context, execution domain.EvidenceExecution) (domain.EvidenceExecution, error) {
 	u.executions = append(u.executions, execution)

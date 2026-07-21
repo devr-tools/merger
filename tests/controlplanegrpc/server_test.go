@@ -98,6 +98,43 @@ func TestServerUpdateEvidenceExecution(t *testing.T) {
 	}
 }
 
+func TestServerListsEvidenceAuditEntries(t *testing.T) {
+	client, cleanup := newTestClient(t)
+	defer cleanup()
+
+	_, err := client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1", Name: "integration_tests", Status: "running", Summary: "started", UpdatedBy: "ci",
+	})
+	if err != nil {
+		t.Fatalf("start evidence: %v", err)
+	}
+	_, err = client.UpdateEvidenceExecution(context.Background(), &mergerv1.UpdateEvidenceExecutionRequest{
+		ChangePacketId: "cp_1", Name: "integration_tests", Status: "satisfied", Summary: "passed", UpdatedBy: "ci",
+	})
+	if err != nil {
+		t.Fatalf("satisfy evidence: %v", err)
+	}
+
+	response, err := client.ListEvidenceAuditEntries(context.Background(), &mergerv1.ListEvidenceAuditEntriesRequest{ChangePacketId: "cp_1"})
+	if err != nil {
+		t.Fatalf("list audit: %v", err)
+	}
+	if len(response.GetItems()) != 2 {
+		t.Fatalf("expected two audit entries, got %#v", response.GetItems())
+	}
+	if response.GetItems()[0].GetFromStatus() != "running" || response.GetItems()[0].GetToStatus() != "satisfied" || response.GetItems()[0].GetActor() != "ci" {
+		t.Fatalf("unexpected latest audit entry: %#v", response.GetItems()[0])
+	}
+	if response.GetItems()[0].GetOccurredAt() == "" || response.GetItems()[0].GetId() == "" {
+		t.Fatalf("expected audit timestamp and ID: %#v", response.GetItems()[0])
+	}
+
+	_, err = client.ListEvidenceAuditEntries(context.Background(), &mergerv1.ListEvidenceAuditEntriesRequest{})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected invalid argument, got %v", err)
+	}
+}
+
 func TestServerReturnsNotFound(t *testing.T) {
 	client, cleanup := newTestClient(t)
 	defer cleanup()
@@ -248,6 +285,9 @@ func TestAccessUnaryServerInterceptorEnforcesRoles(t *testing.T) {
 
 	if _, err := client.GetChangePacket(outgoingAuthorization("reader-secret"), getRequest); err != nil {
 		t.Fatalf("reader get change packet: %v", err)
+	}
+	if _, err := client.ListEvidenceAuditEntries(outgoingAuthorization("reader-secret"), &mergerv1.ListEvidenceAuditEntriesRequest{ChangePacketId: "cp_1"}); err != nil {
+		t.Fatalf("reader list audit history: %v", err)
 	}
 	if _, err := client.UpdateEvidenceExecution(outgoingAuthorization("writer-secret"), &mergerv1.UpdateEvidenceExecutionRequest{
 		ChangePacketId: "cp_1",

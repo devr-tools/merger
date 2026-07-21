@@ -63,6 +63,24 @@ func (s *Server) UpdateEvidenceExecution(ctx context.Context, request *mergerv1.
 	return toUpdateEvidenceExecutionResponse(execution), nil
 }
 
+func (s *Server) ListEvidenceAuditEntries(ctx context.Context, request *mergerv1.ListEvidenceAuditEntriesRequest) (*mergerv1.ListEvidenceAuditEntriesResponse, error) {
+	if request.GetChangePacketId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "change packet id is required")
+	}
+	limit := int(request.GetLimit())
+	if limit <= 0 {
+		limit = controlplane.DefaultListLimit
+	}
+	if limit > controlplane.MaxListLimit {
+		limit = controlplane.MaxListLimit
+	}
+	entries, err := s.service.ListEvidenceAuditEntries(ctx, request.GetChangePacketId(), limit)
+	if err != nil {
+		return nil, statusForError(err)
+	}
+	return toListEvidenceAuditEntriesResponse(entries), nil
+}
+
 func statusForError(err error) error {
 	if err == nil {
 		return nil

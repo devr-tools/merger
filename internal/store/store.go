@@ -24,6 +24,8 @@ type EventStore interface {
 type EvidenceExecutionStore interface {
 	UpsertEvidenceExecution(context.Context, domain.EvidenceExecution) error
 	ListEvidenceExecutions(context.Context, string) ([]domain.EvidenceExecution, error)
+	RecordEvidenceUpdate(context.Context, domain.EvidenceExecution, domain.EvidenceAuditEntry) error
+	ListEvidenceAuditEntries(context.Context, string, int) ([]domain.EvidenceAuditEntry, error)
 }
 
 type Repository interface {

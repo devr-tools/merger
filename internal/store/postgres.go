@@ -180,6 +180,36 @@ func (r *PostgresRepository) ListChangePackets(ctx context.Context, limit int) (
 }
 
 func (r *PostgresRepository) UpsertEvidenceExecution(ctx context.Context, execution domain.EvidenceExecution) error {
+	return upsertEvidenceExecution(ctx, r.db, execution)
+}
+
+func (r *PostgresRepository) RecordEvidenceUpdate(ctx context.Context, execution domain.EvidenceExecution, audit domain.EvidenceAuditEntry) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := upsertEvidenceExecution(ctx, tx, execution); err != nil {
+		return err
+	}
+	metadata, err := json.Marshal(audit.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+insert into merger_evidence_audit_entries (
+	id, change_packet_id, evidence_name, from_status, to_status, actor, summary, details_url, metadata, occurred_at
+) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		audit.ID, audit.ChangePacketID, audit.EvidenceName, audit.FromStatus, audit.ToStatus,
+		audit.Actor, audit.Summary, audit.DetailsURL, string(metadata), audit.OccurredAt,
+	)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func upsertEvidenceExecution(ctx context.Context, executor statementExecutor, execution domain.EvidenceExecution) error {
 	metadata, err := json.Marshal(execution.Metadata)
 	if err != nil {
 		return err
@@ -188,7 +218,7 @@ func (r *PostgresRepository) UpsertEvidenceExecution(ctx context.Context, execut
 		execution.UpdatedAt = time.Now().UTC()
 	}
 
-	_, err = r.db.ExecContext(ctx, `
+	_, err = executor.ExecContext(ctx, `
 insert into merger_evidence_executions (
 	change_packet_id, evidence_name, evidence_type, status, required, summary, details_url, updated_by, metadata, updated_at
 )
@@ -214,6 +244,32 @@ on conflict (change_packet_id, evidence_name) do update set
 		execution.UpdatedAt,
 	)
 	return err
+}
+
+func (r *PostgresRepository) ListEvidenceAuditEntries(ctx context.Context, changePacketID string, limit int) ([]domain.EvidenceAuditEntry, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `
+select id, change_packet_id, evidence_name, from_status, to_status, coalesce(actor,''), coalesce(summary,''), coalesce(details_url,''), metadata, occurred_at
+from merger_evidence_audit_entries where change_packet_id = $1 order by occurred_at desc limit $2`, changePacketID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := make([]domain.EvidenceAuditEntry, 0, limit)
+	for rows.Next() {
+		var entry domain.EvidenceAuditEntry
+		var metadata []byte
+		if err := rows.Scan(&entry.ID, &entry.ChangePacketID, &entry.EvidenceName, &entry.FromStatus, &entry.ToStatus, &entry.Actor, &entry.Summary, &entry.DetailsURL, &metadata, &entry.OccurredAt); err != nil {
+			return nil, err
+		}
+		if len(metadata) > 0 {
+			_ = json.Unmarshal(metadata, &entry.Metadata)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
 }
 
 func (r *PostgresRepository) ListEvidenceExecutions(ctx context.Context, changePacketID string) ([]domain.EvidenceExecution, error) {

@@ -76,6 +76,29 @@ func toEvidenceExecution(item domain.EvidenceExecution) *mergerv1.EvidenceExecut
 	}
 }
 
+func toListEvidenceAuditEntriesResponse(items []domain.EvidenceAuditEntry) *mergerv1.ListEvidenceAuditEntriesResponse {
+	response := &mergerv1.ListEvidenceAuditEntriesResponse{Items: make([]*mergerv1.EvidenceAuditEntry, 0, len(items))}
+	for _, item := range items {
+		response.Items = append(response.Items, toEvidenceAuditEntry(item))
+	}
+	return response
+}
+
+func toEvidenceAuditEntry(item domain.EvidenceAuditEntry) *mergerv1.EvidenceAuditEntry {
+	return &mergerv1.EvidenceAuditEntry{
+		Id:             item.ID,
+		ChangePacketId: item.ChangePacketID,
+		EvidenceName:   item.EvidenceName,
+		FromStatus:     string(item.FromStatus),
+		ToStatus:       string(item.ToStatus),
+		Actor:          item.Actor,
+		Summary:        item.Summary,
+		DetailsUrl:     item.DetailsURL,
+		Metadata:       item.Metadata,
+		OccurredAt:     formatTime(item.OccurredAt),
+	}
+}
+
 func formatTime(value time.Time) string {
 	if value.IsZero() {
 		return ""

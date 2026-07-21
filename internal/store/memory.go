@@ -15,6 +15,7 @@ type MemoryRepository struct {
 	changePackets  map[string]domain.ChangePacket
 	events         map[string]events.Envelope
 	evidenceByCPID map[string]map[string]domain.EvidenceExecution
+	auditByCPID    map[string][]domain.EvidenceAuditEntry
 }
 
 func NewMemoryRepository() *MemoryRepository {
@@ -22,7 +23,47 @@ func NewMemoryRepository() *MemoryRepository {
 		changePackets:  make(map[string]domain.ChangePacket),
 		events:         make(map[string]events.Envelope),
 		evidenceByCPID: make(map[string]map[string]domain.EvidenceExecution),
+		auditByCPID:    make(map[string][]domain.EvidenceAuditEntry),
 	}
+}
+
+func (r *MemoryRepository) RecordEvidenceUpdate(_ context.Context, execution domain.EvidenceExecution, audit domain.EvidenceAuditEntry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.evidenceByCPID[execution.ChangePacketID] == nil {
+		r.evidenceByCPID[execution.ChangePacketID] = make(map[string]domain.EvidenceExecution)
+	}
+	if execution.UpdatedAt.IsZero() {
+		execution.UpdatedAt = time.Now().UTC()
+	}
+	r.evidenceByCPID[execution.ChangePacketID][execution.Name] = execution
+	r.auditByCPID[audit.ChangePacketID] = append(r.auditByCPID[audit.ChangePacketID], cloneAuditEntry(audit))
+	return nil
+}
+
+func (r *MemoryRepository) ListEvidenceAuditEntries(_ context.Context, changePacketID string, limit int) ([]domain.EvidenceAuditEntry, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entries := make([]domain.EvidenceAuditEntry, 0, len(r.auditByCPID[changePacketID]))
+	for _, entry := range r.auditByCPID[changePacketID] {
+		entries = append(entries, cloneAuditEntry(entry))
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].OccurredAt.After(entries[j].OccurredAt) })
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+	return entries, nil
+}
+
+func cloneAuditEntry(entry domain.EvidenceAuditEntry) domain.EvidenceAuditEntry {
+	if len(entry.Metadata) == 0 {
+		return entry
+	}
+	entry.Metadata = make(map[string]string, len(entry.Metadata))
+	for key, value := range entry.Metadata {
+		entry.Metadata[key] = value
+	}
+	return entry
 }
 
 func (r *MemoryRepository) SaveChangePacket(_ context.Context, packet domain.ChangePacket) error {

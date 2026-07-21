@@ -60,6 +60,14 @@ func (h *HTTPHandler) handleChangePacketByID(w http.ResponseWriter, r *http.Requ
 	}
 
 	if len(parts) == 3 && parts[1] == "evidence" {
+		if parts[2] == "audit" {
+			if r.Method != http.MethodGet {
+				methodNotAllowed(w, http.MethodGet)
+				return
+			}
+			h.listEvidenceAudit(w, r, changePacketID)
+			return
+		}
 		if r.Method != http.MethodPut {
 			methodNotAllowed(w, http.MethodPut)
 			return
@@ -69,6 +77,20 @@ func (h *HTTPHandler) handleChangePacketByID(w http.ResponseWriter, r *http.Requ
 	}
 
 	http.NotFound(w, r)
+}
+
+func (h *HTTPHandler) listEvidenceAudit(w http.ResponseWriter, r *http.Request, changePacketID string) {
+	limit, err := parseListLimit(r)
+	if err != nil {
+		writeLoggedHTTPError(w, r, http.StatusBadRequest, "invalid limit parameter", err)
+		return
+	}
+	entries, err := h.service.ListEvidenceAuditEntries(r.Context(), changePacketID, limit)
+	if err != nil {
+		writeLoggedHTTPError(w, r, statusForError(err), publicErrorMessage(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": entries})
 }
 
 func (h *HTTPHandler) listChangePackets(w http.ResponseWriter, r *http.Request) {

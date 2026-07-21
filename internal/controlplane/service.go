@@ -10,6 +10,7 @@ import (
 	"github.com/devr-tools/merger/internal/domain"
 	"github.com/devr-tools/merger/internal/lanes"
 	"github.com/devr-tools/merger/internal/store"
+	"github.com/devr-tools/merger/pkg/identity"
 )
 
 type CheckPublisher interface {
@@ -25,8 +26,9 @@ type Service struct {
 }
 
 type ChangePacketView struct {
-	Packet   domain.ChangePacket        `json:"packet"`
-	Evidence []domain.EvidenceExecution `json:"evidence"`
+	Packet   domain.ChangePacket         `json:"packet"`
+	Evidence []domain.EvidenceExecution  `json:"evidence"`
+	Audit    []domain.EvidenceAuditEntry `json:"audit"`
 }
 
 func NewService(repository store.Repository) *Service {
@@ -64,7 +66,18 @@ func (s *Service) GetChangePacket(ctx context.Context, id string) (ChangePacketV
 	if err != nil {
 		return ChangePacketView{}, err
 	}
-	return ChangePacketView{Packet: packet, Evidence: evidence}, nil
+	audit, err := s.repository.ListEvidenceAuditEntries(ctx, id, DefaultListLimit)
+	if err != nil {
+		return ChangePacketView{}, err
+	}
+	return ChangePacketView{Packet: packet, Evidence: evidence, Audit: audit}, nil
+}
+
+func (s *Service) ListEvidenceAuditEntries(ctx context.Context, changePacketID string, limit int) ([]domain.EvidenceAuditEntry, error) {
+	if _, err := s.repository.GetChangePacket(ctx, changePacketID); err != nil {
+		return nil, err
+	}
+	return s.repository.ListEvidenceAuditEntries(ctx, changePacketID, limit)
 }
 
 func (s *Service) ListChangePackets(ctx context.Context, limit int) ([]domain.ChangePacket, error) {
@@ -116,7 +129,19 @@ func (s *Service) UpdateEvidenceExecution(ctx context.Context, execution domain.
 	execution.Type = requirement.Type
 	execution.Required = requirement.Required
 	execution.UpdatedAt = time.Now().UTC()
-	if err := s.repository.UpsertEvidenceExecution(ctx, execution); err != nil {
+	audit := domain.EvidenceAuditEntry{
+		ID:             identity.New("evidence_audit"),
+		ChangePacketID: execution.ChangePacketID,
+		EvidenceName:   execution.Name,
+		FromStatus:     currentStatus,
+		ToStatus:       execution.Status,
+		Actor:          execution.UpdatedBy,
+		Summary:        execution.Summary,
+		DetailsURL:     execution.DetailsURL,
+		Metadata:       execution.Metadata,
+		OccurredAt:     execution.UpdatedAt,
+	}
+	if err := s.repository.RecordEvidenceUpdate(ctx, execution, audit); err != nil {
 		return domain.EvidenceExecution{}, err
 	}
 	if err := s.reconcileDecision(ctx, &packet); err != nil {

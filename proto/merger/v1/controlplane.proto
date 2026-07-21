@@ -62,8 +62,31 @@ message UpdateEvidenceExecutionResponse {
   EvidenceExecution evidence = 1;
 }
 
+message EvidenceAuditEntry {
+  string id = 1;
+  string change_packet_id = 2;
+  string evidence_name = 3;
+  string from_status = 4;
+  string to_status = 5;
+  string actor = 6;
+  string summary = 7;
+  string details_url = 8;
+  map<string, string> metadata = 9;
+  string occurred_at = 10;
+}
+
+message ListEvidenceAuditEntriesRequest {
+  string change_packet_id = 1;
+  int32 limit = 2;
+}
+
+message ListEvidenceAuditEntriesResponse {
+  repeated EvidenceAuditEntry items = 1;
+}
+
 service ChangeControlService {
   rpc GetChangePacket(GetChangePacketRequest) returns (GetChangePacketResponse);
   rpc ListChangePackets(ListChangePacketsRequest) returns (ListChangePacketsResponse);
   rpc UpdateEvidenceExecution(UpdateEvidenceExecutionRequest) returns (UpdateEvidenceExecutionResponse);
+  rpc ListEvidenceAuditEntries(ListEvidenceAuditEntriesRequest) returns (ListEvidenceAuditEntriesResponse);
 }

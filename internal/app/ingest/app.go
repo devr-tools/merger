@@ -48,7 +48,9 @@ func New(
 		}),
 		checkPublisher,
 		runtimegraph.NewResolver(runtimegraph.Options{
-			EnableCodeOwners: cfg.RuntimeGraph.EnableCodeOwners,
+			EnableCodeOwners:  cfg.RuntimeGraph.EnableCodeOwners,
+			GraphManifestPath: cfg.RuntimeGraph.GraphManifestPath,
+			MaxTraversalDepth: cfg.RuntimeGraph.MaxTraversalDepth,
 		}),
 		repository,
 		controlplane.NewServiceWithOptions(

@@ -110,7 +110,9 @@ type TelemetryConfig struct {
 }
 
 type RuntimeGraphConfig struct {
-	EnableCodeOwners bool `yaml:"enable_codeowners"`
+	EnableCodeOwners  bool   `yaml:"enable_codeowners"`
+	GraphManifestPath string `yaml:"graph_manifest_path"`
+	MaxTraversalDepth int    `yaml:"max_traversal_depth"`
 }
 
 func Defaults() Config {

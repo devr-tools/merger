@@ -15,6 +15,9 @@ func NewResolver(options Options) *Builder {
 		repositoryTopologySource{},
 		manifestSource{},
 	}
+	if options.GraphManifestPath != "" {
+		sources = append(sources, graphManifestSource{})
+	}
 	if options.EnableCodeOwners {
 		sources = append(sources, codeOwnersSource{})
 	}
@@ -32,7 +35,14 @@ func (r *Builder) ResolveImpact(ctx context.Context, input ResolutionInput) (dom
 			return domain.RuntimeImpact{}, nil, err
 		}
 
-		indexSystems(serviceIndex, fragment.Systems)
+		if len(fragment.Edges) > 0 && len(fragment.Affected) > 0 {
+			resolved := traverseGraph(fragment, input.Options.MaxTraversalDepth)
+			indexSystems(serviceIndex, resolved.Systems)
+			promoteCriticality(&impact, resolved.Criticality)
+			impact.Notes = append(impact.Notes, resolved.Notes...)
+		} else {
+			indexSystems(serviceIndex, fragment.Systems)
+		}
 		indexOwners(ownerIndex, fragment.Ownership)
 		promoteCriticality(&impact, fragment.Criticality)
 		impact.Notes = append(impact.Notes, fragment.Notes...)

@@ -158,6 +158,37 @@ Copy [the merge-queue workflow example](examples/github-merge-queue-gate.yml)
 into `.github/workflows/merger-change-control.yml`, adjust the action version
 and lane threshold, and enable GitHub Merge Queue for the target branch.
 
+### Runtime dependency graph
+
+Optionally configure a repository-local graph manifest to resolve transitive
+impact beyond changed-file topology. Traversal is bounded (default depth `3`)
+and supplements, rather than replaces, CODEOWNERS and manifest discovery.
+
+```yaml
+runtime_graph:
+  enable_codeowners: true
+  graph_manifest_path: .merger/runtime-graph.yaml
+  max_traversal_depth: 3
+```
+
+The graph manifest maps changed paths to node IDs and declares dependencies:
+
+```yaml
+nodes:
+  - id: payments-api
+    name: payments-api
+    kind: service
+    criticality: high
+    paths: ["services/payments-api/**"]
+  - id: ledger
+    name: ledger
+    kind: service
+edges:
+  - from: payments-api
+    to: ledger
+    type: calls
+```
+
 ## Run the control plane locally
 
 The full control plane (webhook ingest, persistence, event bus) needs the local

@@ -25,25 +25,8 @@ func NewAssigner(config Config) *ThresholdAssigner {
 }
 
 func (a *ThresholdAssigner) Assign(_ context.Context, packet domain.ChangePacket) (domain.MergeLane, error) {
-	if packet.Decision.Status == domain.DecisionBlocked {
-		return domain.MergeLaneBlack, nil
-	}
-	if packet.Conflict.RequiresHumanResolution {
-		return domain.MergeLaneBlack, nil
-	}
-	if packet.Conflict.Route == domain.ConflictRouteRefreshAndVerify {
-		return maxLane(domain.MergeLaneRed, packet.Decision.MinimumLane), nil
-	}
-
-	if packet.Decision.MinimumLane != "" && packet.Decision.MinimumLane == domain.MergeLaneBlack {
-		return domain.MergeLaneBlack, nil
-	}
-
-	// An unresolved decision represents outstanding required evidence or review.
-	// Keep it out of the automatable GREEN lane so callers can gate it with
-	// the existing RED threshold while the requirements are completed.
-	if packet.Decision.Status == domain.DecisionPending || packet.Decision.Status == domain.DecisionEscalated {
-		return maxLane(domain.MergeLaneRed, packet.Decision.MinimumLane), nil
+	if lane, overridden := forcedLane(packet); overridden {
+		return lane, nil
 	}
 
 	if packet.RiskSummary.Score <= a.config.GreenMax && len(packet.Reviewers) == 0 && !packet.Deployment.RequiresCanary {
@@ -59,6 +42,22 @@ func (a *ThresholdAssigner) Assign(_ context.Context, packet domain.ChangePacket
 	}
 
 	return domain.MergeLaneBlack, nil
+}
+
+func forcedLane(packet domain.ChangePacket) (domain.MergeLane, bool) {
+	if packet.Decision.Status == domain.DecisionBlocked || packet.Conflict.RequiresHumanResolution {
+		return domain.MergeLaneBlack, true
+	}
+	if packet.Conflict.Route == domain.ConflictRouteRefreshAndVerify {
+		return maxLane(domain.MergeLaneRed, packet.Decision.MinimumLane), true
+	}
+	if packet.Decision.MinimumLane == domain.MergeLaneBlack {
+		return domain.MergeLaneBlack, true
+	}
+	if packet.Decision.Status == domain.DecisionPending || packet.Decision.Status == domain.DecisionEscalated {
+		return maxLane(domain.MergeLaneRed, packet.Decision.MinimumLane), true
+	}
+	return "", false
 }
 
 func requiresEscalatedReview(packet domain.ChangePacket) bool {
